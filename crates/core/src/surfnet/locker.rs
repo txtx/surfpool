@@ -51,8 +51,6 @@ use solana_transaction_status::{
     TransactionConfirmationStatus as SolanaTransactionConfirmationStatus, UiConfirmedBlock,
     UiTransactionEncoding,
 };
-#[cfg(feature = "prometheus")]
-use surfpool_types::MetricsData;
 use surfpool_types::{
     AccountSnapshot, ComputeUnitsEstimationResult, ExecutionCapture, ExportSnapshotConfig, Idl,
     KeyedProfileResult, ProfileResult, RpcProfileResultConfig, RunbookExecutionStatusReport,
@@ -282,7 +280,15 @@ impl SurfnetSvmLocker {
             let is_closed = self.get_closed_accounts().contains(pubkey);
 
             if !is_closed {
+                #[cfg(feature = "prometheus")]
+                let fetch_start = std::time::Instant::now();
+
                 let remote_account = client.get_account(pubkey, commitment_config).await?;
+                // Record how long mainnet fetch took
+                #[cfg(feature = "prometheus")]
+                crate::telemetry::metrics()
+                    .record_remote_fetch(fetch_start.elapsed().as_secs_f64() * 1000.0);
+
                 Ok(result.with_new_value(remote_account))
             } else {
                 Ok(result)
@@ -390,11 +396,16 @@ impl SurfnetSvmLocker {
             missing_accounts.iter().join(", ")
         );
 
+        #[cfg(feature = "prometheus")]
+        let fetch_start = std::time::Instant::now();
+
         // Fetch missing accounts from remote
         let remote_results = client
             .get_multiple_accounts(&missing_accounts, commitment_config)
             .await?;
-
+        #[cfg(feature = "prometheus")]
+        crate::telemetry::metrics()
+            .record_remote_fetch(fetch_start.elapsed().as_secs_f64() * 1000.0);
         // Build map of pubkey -> remote result for O(1) lookup
         let remote_map: HashMap<Pubkey, GetAccountResult> = missing_accounts
             .into_iter()
@@ -1045,25 +1056,6 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm_writer| {
             svm_writer.write_executed_profile_result(signature, profile_result)
         })?;
-
-        #[cfg(feature = "prometheus")]
-        {
-            let metric_data = self.with_svm_reader(|svm| MetricsData {
-                slot: svm.latest_epoch_info.absolute_slot,
-                epoch: svm.latest_epoch_info.epoch,
-                slot_index: svm.latest_epoch_info.slot_index,
-                transactions_count: svm.transactions.count().unwrap_or(0) as usize,
-                transactions_processed: svm.transactions_processed,
-                start_time: svm.start_time,
-                signature_subs: svm.signature_subscriptions.len(),
-                account_subs: svm.account_subscriptions.len(),
-                slot_subs: svm.slot_subscriptions.len(),
-                logs_subs: svm.logs_subscriptions.len(),
-            });
-            let _ = self
-                .simnet_events_tx()
-                .send(SimnetEvent::MetricsData(metric_data));
-        }
 
         Ok(())
     }

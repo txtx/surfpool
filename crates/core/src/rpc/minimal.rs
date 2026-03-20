@@ -602,6 +602,9 @@ impl Minimal for SurfpoolMinimalRpc {
         };
 
         Box::pin(async move {
+            #[cfg(feature = "prometheus")]
+            let rpc_start = std::time::Instant::now();
+
             let SvmAccessContext {
                 slot,
                 inner: account_update,
@@ -616,6 +619,10 @@ impl Minimal for SurfpoolMinimalRpc {
             };
 
             svm_locker.write_account_update(account_update);
+
+            #[cfg(feature = "prometheus")]
+            crate::telemetry::metrics()
+                .record_rpc_request("getBalance", rpc_start.elapsed().as_secs_f64() * 1000.0);
 
             Ok(RpcResponse {
                 context: RpcResponseContext::new(slot),

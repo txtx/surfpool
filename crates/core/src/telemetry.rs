@@ -3,15 +3,15 @@
 //! Feature `prometheus` enables a `/metrics` HTTP endpoint
 
 #[cfg(feature = "prometheus")]
-use std::time::SystemTime;
-
-#[cfg(feature = "prometheus")]
 mod instrumented {
-    use std::sync::{Once, OnceLock};
+    use std::{
+        sync::{Once, OnceLock},
+        time::Instant,
+    };
 
     use opentelemetry::{
         KeyValue,
-        metrics::{Counter, Gauge, Meter, MeterProvider},
+        metrics::{Counter, Histogram, Meter, MeterProvider},
     };
     use opentelemetry_sdk::{Resource, metrics::SdkMeterProvider};
     use prometheus::Encoder;
@@ -22,114 +22,71 @@ mod instrumented {
     static METRICS: OnceLock<SurfpoolMetrics> = OnceLock::new();
     static METER_PROVIDER: OnceLock<SdkMeterProvider> = OnceLock::new();
 
+    #[derive(Debug)]
     pub struct SurfpoolMetrics {
-        slot: Gauge<u64>,
-        epoch: Gauge<u64>,
-        slot_index: Gauge<u64>,
-        transactions_count: Gauge<u64>,
-        transactions_processed_total: Gauge<u64>,
-        uptime_seconds: Gauge<u64>,
-        ws_subscriptions_total: Gauge<u64>,
-        ws_signature_subscriptions: Gauge<u64>,
-        ws_account_subscriptions: Gauge<u64>,
-        ws_slot_subscriptions: Gauge<u64>,
-        ws_logs_subscriptions: Gauge<u64>,
-        transactions_processed: Counter<u64>,
+        // Transaction success/failure rate
+        tx_count: Counter<u64>,
+
+        // Transaction processing latency
+        tx_latency_ms: Histogram<f64>,
+
+        // RPC request rate by method
+        rpc_request_count: Counter<u64>,
+
+        // RPC request latency by method
+        rpc_latency_ms: Histogram<f64>,
+
+        // Remote account fetch latency
+        remote_fetch_latency_ms: Histogram<f64>,
     }
 
     impl SurfpoolMetrics {
         fn new(meter: Meter) -> Self {
             Self {
-                slot: meter
-                    .u64_gauge("surfpool_slot")
-                    .with_description("Current slot height")
+                tx_count: meter
+                    .u64_counter("surfpool_transactions")
+                    .with_description("Total transactions by status (success/failure)")
                     .build(),
-                epoch: meter
-                    .u64_gauge("surfpool_epoch")
-                    .with_description("Current epoch")
+
+                tx_latency_ms: meter
+                    .f64_histogram("surfpool_transaction_processing_ms")
+                    .with_description("Transaction processing latency in milliseconds")
                     .build(),
-                slot_index: meter
-                    .u64_gauge("surfpool_slot_index")
-                    .with_description("Slot index within epoch")
+
+                rpc_request_count: meter
+                    .u64_counter("surfpool_rpc_requests")
+                    .with_description("RPC requests by method")
                     .build(),
-                transactions_count: meter
-                    .u64_gauge("surfpool_transactions_count")
-                    .with_description("Number of transactions in storage")
+
+                rpc_latency_ms: meter
+                    .f64_histogram("surfpool_rpc_latency_ms")
+                    .with_description("RPC request latency in milliseconds by method")
                     .build(),
-                transactions_processed_total: meter
-                    .u64_gauge("surfpool_transactions_processed_total")
-                    .with_description("Total processed transactions")
-                    .build(),
-                uptime_seconds: meter
-                    .u64_gauge("surfpool_uptime_seconds")
-                    .with_description("Time since start in seconds")
-                    .build(),
-                ws_subscriptions_total: meter
-                    .u64_gauge("surfpool_ws_subscriptions_total")
-                    .with_description("Total WebSocket subscriptions")
-                    .build(),
-                ws_signature_subscriptions: meter
-                    .u64_gauge("surfpool_ws_signature_subscriptions")
-                    .with_description("Signature subscriptions count")
-                    .build(),
-                ws_account_subscriptions: meter
-                    .u64_gauge("surfpool_ws_account_subscriptions")
-                    .with_description("Account subscriptions count")
-                    .build(),
-                ws_slot_subscriptions: meter
-                    .u64_gauge("surfpool_ws_slot_subscriptions")
-                    .with_description("Slot subscriptions count")
-                    .build(),
-                ws_logs_subscriptions: meter
-                    .u64_gauge("surfpool_ws_logs_subscriptions")
-                    .with_description("Logs subscriptions count")
-                    .build(),
-                transactions_processed: meter
-                    .u64_counter("surfpool_transactions_processed")
-                    .with_description("Transactions processed counter")
+
+                remote_fetch_latency_ms: meter
+                    .f64_histogram("surfpool_remote_fetch_latency_ms")
+                    .with_description("Remote account fetch latency from mainnet in milliseconds")
                     .build(),
             }
         }
 
-        pub fn record_svm_state(
-            &self,
-            slot: u64,
-            epoch: u64,
-            slot_index: u64,
-            transactions_count: usize,
-            transactions_processed: u64,
-            start_time: SystemTime,
-            signature_subs: usize,
-            account_subs: usize,
-            slot_subs: usize,
-            logs_subs: usize,
-        ) {
-            let uptime_secs = SystemTime::now()
-                .duration_since(start_time)
-                .unwrap_or_default()
-                .as_secs();
-
-            self.slot.record(slot, &[]);
-            self.epoch.record(epoch, &[]);
-            self.slot_index.record(slot_index, &[]);
-            self.transactions_count
-                .record(transactions_count as u64, &[]);
-            self.transactions_processed_total
-                .record(transactions_processed, &[]);
-            self.uptime_seconds.record(uptime_secs, &[]);
-
-            let total_subs = (signature_subs + account_subs + slot_subs + logs_subs) as u64;
-            self.ws_subscriptions_total.record(total_subs, &[]);
-            self.ws_signature_subscriptions
-                .record(signature_subs as u64, &[]);
-            self.ws_account_subscriptions
-                .record(account_subs as u64, &[]);
-            self.ws_slot_subscriptions.record(slot_subs as u64, &[]);
-            self.ws_logs_subscriptions.record(logs_subs as u64, &[]);
+        /// Called in send_transaction() — records success or failure + latency
+        pub fn record_transaction(&self, success: bool, latency_ms: f64) {
+            let status = if success { "success" } else { "failure" };
+            self.tx_count.add(1, &[KeyValue::new("status", status)]);
+            self.tx_latency_ms.record(latency_ms, &[]);
         }
 
-        pub fn increment_transactions_processed(&self, count: u64) {
-            self.transactions_processed.add(count, &[]);
+        /// Called in RPC handlers — records which method was called + how long it took
+        pub fn record_rpc_request(&self, method: &str, latency_ms: f64) {
+            let attrs = &[KeyValue::new("method", method.to_string())];
+            self.rpc_request_count.add(1, attrs);
+            self.rpc_latency_ms.record(latency_ms, attrs);
+        }
+
+        /// Called when fetching accounts from mainnet (remote cloning)
+        pub fn record_remote_fetch(&self, latency_ms: f64) {
+            self.remote_fetch_latency_ms.record(latency_ms, &[]);
         }
     }
 
