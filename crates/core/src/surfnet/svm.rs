@@ -1532,7 +1532,7 @@ impl SurfnetSvm {
     ) -> TransactionResult {
         #[cfg(feature = "prometheus")]
         let tx_start = std::time::Instant::now();
-      
+
         if sigverify {
             self.sigverify(&tx)?;
         }
