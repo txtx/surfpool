@@ -1,7 +1,6 @@
 use std::{str::FromStr, sync::Arc, time::Duration};
 
 use base64::Engine;
-use bincode::Options;
 use crossbeam_channel::{unbounded, unbounded as crossbeam_unbounded};
 use jsonrpc_core::{
     Error, Result as JsonRpcResult,
@@ -13,7 +12,7 @@ use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_dat
 use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
-    rpc_config::{RpcContextConfig, RpcSimulateTransactionConfig},
+    rpc_config::{RpcSendTransactionConfig, RpcSimulateTransactionConfig},
     rpc_response::RpcLogsResponse,
 };
 use solana_clock::{Clock, Slot};
@@ -51,7 +50,7 @@ use crate::{
     error::SurfpoolError,
     rpc::{
         RunloopContext,
-        full::{Full, FullClient, SurfpoolFullRpc},
+        full::{Full, FullClient, SurfpoolFullRpc, SurfpoolRpcSendTransactionConfig},
         minimal::{Minimal, MinimalClient, SurfpoolMinimalRpc},
         surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
@@ -7985,4 +7984,164 @@ async fn test_account_loaded_twice_rejected(test_type: TestType) {
     );
 
     println!("AccountLoadedTwice rejection test passed!");
+}
+
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test]
+async fn test_send_transaction_skip_sig_verify_processes_and_updates_state(test_type: TestType) {
+    let payer = Keypair::new();
+    let recipient = Keypair::new().pubkey();
+    let transfer_amount = LAMPORTS_PER_SOL / 2;
+    let airdrop_amount = LAMPORTS_PER_SOL * 2;
+    let bind_host = "127.0.0.1";
+    let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
+
+    let config = SurfpoolConfig {
+        simnets: vec![SimnetConfig {
+            slot_time: 1,
+            airdrop_addresses: vec![payer.pubkey()],
+            airdrop_token_amount: airdrop_amount,
+            ..SimnetConfig::default()
+        }],
+        rpc: RpcConfig {
+            bind_host: bind_host.to_string(),
+            bind_port,
+            ws_port,
+            ..Default::default()
+        },
+        ..SurfpoolConfig::default()
+    };
+
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
+    let (simnet_commands_tx, simnet_commands_rx) = unbounded();
+    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+    let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
+
+    let _handle = hiro_system_kit::thread_named("test").spawn(move || {
+        let future = start_local_surfnet_runloop(
+            svm_locker,
+            config,
+            subgraph_commands_tx,
+            simnet_commands_tx,
+            simnet_commands_rx,
+            geyser_events_rx,
+        );
+        if let Err(e) = hiro_system_kit::nestable_block_on(future) {
+            panic!("{e:?}");
+        }
+    });
+
+    wait_for_ready_and_connected(&simnet_events_rx);
+
+    let minimal_client =
+        http::connect::<MinimalClient>(format!("http://{bind_host}:{bind_port}").as_str())
+            .await
+            .expect("Failed to connect to Surfpool");
+    let full_client =
+        http::connect::<FullClient>(format!("http://{bind_host}:{bind_port}").as_str())
+            .await
+            .expect("Failed to connect to Surfpool");
+
+    // Verify payer got airdrop
+    let payer_balance = minimal_client
+        .get_balance(payer.pubkey().to_string(), None)
+        .await
+        .expect("Failed to get payer balance");
+    assert_eq!(
+        payer_balance.value, airdrop_amount,
+        "Payer should have airdrop amount"
+    );
+
+    // Verify recipient starts with zero
+    let recipient_balance = minimal_client
+        .get_balance(recipient.to_string(), None)
+        .await
+        .expect("Failed to get recipient balance");
+    assert_eq!(
+        recipient_balance.value, 0,
+        "Recipient should start with zero balance"
+    );
+
+    // Get a recent blockhash
+    let recent_blockhash = full_client
+        .get_latest_blockhash(None)
+        .await
+        .map(|r| {
+            Hash::from_str(r.value.blockhash.as_str()).expect("Failed to deserialize blockhash")
+        })
+        .expect("Failed to get blockhash");
+
+    // Build a transaction with an INVALID signature (Signature::new_unique instead of real signing)
+    let msg = VersionedMessage::Legacy(Message::new_with_blockhash(
+        &[system_instruction::transfer(
+            &payer.pubkey(),
+            &recipient,
+            transfer_amount,
+        )],
+        Some(&payer.pubkey()),
+        &recent_blockhash,
+    ));
+    let tx = VersionedTransaction {
+        signatures: vec![solana_signature::Signature::new_unique()],
+        message: msg,
+    };
+
+    let encoded = bincode::serialize(&tx).expect("Failed to serialize tx");
+    let data = bs58::encode(encoded).into_string();
+
+    // Send with skip_sig_verify=true and skip_preflight=true
+    let send_config = SurfpoolRpcSendTransactionConfig {
+        base: RpcSendTransactionConfig {
+            skip_preflight: true,
+            ..Default::default()
+        },
+        skip_sig_verify: Some(true),
+    };
+    let _sig = full_client
+        .send_transaction(data, Some(send_config))
+        .await
+        .expect("send_transaction with skip_sig_verify should succeed");
+
+    // Wait for the transaction to be processed
+    let _ = task::spawn_blocking(move || {
+        loop {
+            match simnet_events_rx.recv() {
+                Ok(SimnetEvent::TransactionProcessed(..)) => break,
+                _ => (),
+            }
+        }
+    })
+    .await;
+
+    // Assert recipient received the transfer
+    let final_recipient_balance = minimal_client
+        .get_balance(recipient.to_string(), None)
+        .await
+        .expect("Failed to get final recipient balance");
+    assert_eq!(
+        final_recipient_balance.value, transfer_amount,
+        "Recipient should have received the transfer amount"
+    );
+
+    // Assert payer balance decreased by transfer + fees
+    let final_payer_balance = minimal_client
+        .get_balance(payer.pubkey().to_string(), None)
+        .await
+        .expect("Failed to get final payer balance");
+    assert!(
+        final_payer_balance.value < airdrop_amount - transfer_amount,
+        "Payer balance ({}) should be less than airdrop minus transfer ({}) due to fees",
+        final_payer_balance.value,
+        airdrop_amount - transfer_amount
+    );
+    assert!(
+        final_payer_balance.value > airdrop_amount - transfer_amount - LAMPORTS_PER_SOL / 10,
+        "Payer balance ({}) should not have decreased by more than transfer + reasonable fees",
+        final_payer_balance.value,
+    );
 }
