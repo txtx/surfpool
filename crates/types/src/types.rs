@@ -1257,6 +1257,56 @@ impl RunbookExecutionStatusReport {
     }
 }
 
+/// Configuration for transaction replay.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayConfig {
+    /// Enable transaction profiling to capture detailed execution metrics.
+    #[serde(default)]
+    pub profile: Option<bool>,
+    /// Time travel to the transaction's original slot before execution.
+    #[serde(default)]
+    pub time_travel: Option<bool>,
+}
+
+impl ReplayConfig {
+    pub fn should_profile(&self) -> bool {
+        self.profile.unwrap_or(true)
+    }
+
+    pub fn should_time_travel(&self) -> bool {
+        self.time_travel.unwrap_or(true)
+    }
+}
+
+/// Result of replaying a transaction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayResult {
+    /// The signature of the replayed transaction.
+    pub signature: String,
+    /// The slot at which the transaction was originally executed.
+    pub original_slot: Slot,
+    /// The slot at which the transaction was replayed.
+    pub replay_slot: Slot,
+    /// Block time of the original transaction (unix timestamp).
+    pub original_block_time: Option<i64>,
+    /// Whether the replay execution succeeded.
+    pub success: bool,
+    /// Execution log messages.
+    pub logs: Vec<String>,
+    /// Compute units consumed during execution.
+    pub compute_units_consumed: u64,
+    /// Error message if execution failed.
+    pub error: Option<String>,
+    /// Detailed profile result (if profiling was enabled).
+    pub profile_result: Option<UiKeyedProfileResult>,
+    /// Accounts used in the transaction.
+    pub accounts_used: Vec<String>,
+    /// Warning about state differences (historical vs current).
+    pub state_warning: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
