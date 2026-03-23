@@ -8,6 +8,10 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: release 
+    permissions:
+      id-token: write  # Required for OIDC token exchange with crates.io
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,9 +28,13 @@ jobs:
           key: cargo-publish-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: cargo-publish-${{ runner.os }}-
 
+      - name: Authenticate with crates.io (Trusted Publishing)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
       - name: Publish crates
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_API_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
           CRATES="surfpool-types surfpool-db surfpool-subgraph surfpool-gql surfpool-core surfpool-studio-ui"
 
