@@ -794,6 +794,17 @@ impl SurfnetSvmLocker {
 
 /// Get signatures for Addresses
 impl SurfnetSvmLocker {
+    /// Returns local `getSignaturesForAddress` results in the same newest-first order expected by
+    /// the Solana RPC.
+    ///
+    /// The implementation has to do more than filter by slot:
+    /// - transactions are ordered by descending slot
+    /// - transactions within the same slot are ordered by their execution order in the block
+    /// - `before` and `until` are pagination boundaries in that final ordered stream
+    ///
+    /// To preserve those semantics, we first collect matching transactions, reconstruct their
+    /// intra-slot ordering from block headers, sort the full result stream, and only then apply
+    /// the `before` / `until` window followed by `limit`.
     pub fn get_signatures_for_address_local(
         &self,
         pubkey: &Pubkey,
@@ -811,12 +822,6 @@ impl SurfnetSvmLocker {
             let current_slot = svm_reader.get_latest_absolute_slot();
 
             let limit = limit.unwrap_or(1000);
-
-            let config_before = &before;
-            let config_until = &until;
-
-            let mut before_slot = None;
-            let mut until_slot = None;
 
             let sigs: Vec<_> = svm_reader
                 .transactions
@@ -836,14 +841,6 @@ impl SurfnetSvmLocker {
 
                         if slot < min_context_slot.unwrap_or_default() {
                             return None;
-                        }
-
-                        if Some(sig.clone()) == *config_before {
-                            before_slot = Some(slot);
-                        }
-
-                        if Some(sig.clone()) == *config_until {
-                            until_slot = Some(slot);
                         }
 
                         // Check if the pubkey is a signer
@@ -877,6 +874,8 @@ impl SurfnetSvmLocker {
                 })
                 .unwrap_or_default();
 
+            // `getSignaturesForAddress` is ordered newest-first, but transactions that share a
+            // slot also need to preserve their execution order within that block.
             let unique_slots: HashSet<u64> = sigs.iter().map(|s| s.slot).collect();
             let mut sig_position: HashMap<String, usize> = HashMap::new();
             for slot in unique_slots {
@@ -887,23 +886,10 @@ impl SurfnetSvmLocker {
                 }
             }
 
-            sigs.into_iter()
-                .filter(|sig| {
-                    if before.is_none() && until.is_none() {
-                        return true;
-                    }
-
-                    if before.is_some() && before_slot > Some(sig.slot) {
-                        return true;
-                    }
-
-                    if until.is_some() && until_slot < Some(sig.slot) {
-                        return true;
-                    }
-
-                    false
-                })
-                // order from most recent to least recent
+            let sigs: Vec<_> = sigs
+                .into_iter()
+                // Order from most recent to least recent so pagination boundaries
+                // can be applied against the exact transaction sequence.
                 .sorted_by(|a, b| {
                     b.slot.cmp(&a.slot).then_with(|| {
                         let a_pos = sig_position.get(&a.signature).unwrap_or(&usize::MAX);
@@ -911,8 +897,39 @@ impl SurfnetSvmLocker {
                         b_pos.cmp(&a_pos)
                     })
                 })
-                .take(limit)
-                .collect()
+                .collect();
+
+            let window = {
+                // `before` and `until` are boundaries in the final ordered result stream, not
+                // just slot filters. We compute a [start..end) index range after sorting so
+                // same-slot pagination behaves correctly and `until` stays exclusive.
+                let start = match before.as_deref() {
+                    // `before` is exclusive, so we start one item after the boundary when it
+                    // exists. If it does not exist locally, the local window is empty.
+                    Some(before) => match sigs.iter().position(|sig| sig.signature == before) {
+                        Some(idx) => idx + 1,
+                        None => sigs.len(),
+                    },
+                    None => 0,
+                };
+
+                let end = match until.as_deref() {
+                    // `until` is also exclusive, so the boundary itself is not included. We only
+                    // search within `sigs[start..]` so the end boundary is resolved relative to the
+                    // already-trimmed start of the window. If it is missing, we keep the full tail.
+                    Some(until) => {
+                        match sigs[start..].iter().position(|sig| sig.signature == until) {
+                            Some(offset) => start + offset,
+                            None => sigs.len(),
+                        }
+                    }
+                    None => sigs.len(),
+                };
+                start..end
+            };
+
+            // Apply the pagination window first, then enforce the RPC limit on that slice.
+            sigs[window].iter().take(limit).cloned().collect()
         })
     }
 
@@ -4719,6 +4736,47 @@ mod tests {
             .unwrap();
     }
 
+    fn seed_signature_history(
+        locker: &SurfnetSvmLocker,
+        pubkey: &Pubkey,
+        blocks: &[(u64, Vec<Signature>)],
+    ) {
+        locker.with_svm_writer(|svm| {
+            for (slot, signatures) in blocks {
+                for sig in signatures {
+                    store_test_tx(svm, *sig, pubkey, *slot);
+                }
+
+                svm.blocks
+                    .store(
+                        *slot,
+                        BlockHeader {
+                            hash: String::new(),
+                            previous_blockhash: String::new(),
+                            parent_slot: 0,
+                            block_time: 0,
+                            block_height: 0,
+                            signatures: signatures.clone(),
+                        },
+                    )
+                    .unwrap();
+            }
+        });
+    }
+
+    fn fetch_signature_strings(
+        locker: &SurfnetSvmLocker,
+        pubkey: &Pubkey,
+        config: Option<RpcSignaturesForAddressConfig>,
+    ) -> Vec<String> {
+        locker
+            .get_signatures_for_address_local(pubkey, config)
+            .inner
+            .iter()
+            .map(|s| s.signature.clone())
+            .collect()
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_signatures_for_address_ordering_within_block() {
         let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
@@ -4730,35 +4788,204 @@ mod tests {
         let sig_c = Signature::new_unique();
         let slot = 5;
 
-        locker.with_svm_writer(|svm| {
-            store_test_tx(svm, sig_a, &pubkey, slot);
-            store_test_tx(svm, sig_b, &pubkey, slot);
-            store_test_tx(svm, sig_c, &pubkey, slot);
-
-            // Block header records execution order: A, B, C
-            svm.blocks
-                .store(
-                    slot,
-                    BlockHeader {
-                        hash: String::new(),
-                        previous_blockhash: String::new(),
-                        parent_slot: 0,
-                        block_time: 0,
-                        block_height: 0,
-                        signatures: vec![sig_a, sig_b, sig_c],
-                    },
-                )
-                .unwrap();
-        });
-
-        let result = locker.get_signatures_for_address_local(&pubkey, None);
-        let sigs: Vec<String> = result.inner.iter().map(|s| s.signature.clone()).collect();
+        seed_signature_history(&locker, &pubkey, &[(slot, vec![sig_a, sig_b, sig_c])]);
+        let sigs = fetch_signature_strings(&locker, &pubkey, None);
 
         // Last executed (C) should appear first, then B, then A
         assert_eq!(sigs.len(), 3);
         assert_eq!(sigs[0], sig_c.to_string());
         assert_eq!(sigs[1], sig_b.to_string());
         assert_eq!(sigs[2], sig_a.to_string());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_until_excludes_boundary_signature() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let sig_c = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(&locker, &pubkey, &[(slot, vec![sig_a, sig_b, sig_c])]);
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                until: Some(sig_b.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_c.to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_before_excludes_boundary_signature() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let sig_c = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(&locker, &pubkey, &[(slot, vec![sig_a, sig_b, sig_c])]);
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                before: Some(sig_b.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_a.to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_before_and_until_form_window() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let sig_c = Signature::new_unique();
+        let sig_d = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(
+            &locker,
+            &pubkey,
+            &[(slot, vec![sig_a, sig_b, sig_c, sig_d])],
+        );
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                before: Some(sig_d.to_string()),
+                until: Some(sig_b.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_c.to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_before_missing_returns_empty() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let missing_sig = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(&locker, &pubkey, &[(slot, vec![sig_a, sig_b])]);
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                before: Some(missing_sig.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert!(sigs.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_until_missing_returns_all_results() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let missing_sig = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(&locker, &pubkey, &[(slot, vec![sig_a, sig_b])]);
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                until: Some(missing_sig.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_b.to_string(), sig_a.to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_limit_applies_after_windowing() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let sig_c = Signature::new_unique();
+        let sig_d = Signature::new_unique();
+        let sig_e = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(
+            &locker,
+            &pubkey,
+            &[(slot, vec![sig_a, sig_b, sig_c, sig_d, sig_e])],
+        );
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                before: Some(sig_e.to_string()),
+                until: Some(sig_a.to_string()),
+                limit: Some(2),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_d.to_string(), sig_c.to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_until_excludes_boundary_across_slots() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_s5 = Signature::new_unique();
+        let sig_s10_a = Signature::new_unique();
+        let sig_s10_b = Signature::new_unique();
+        let sig_s15 = Signature::new_unique();
+
+        seed_signature_history(
+            &locker,
+            &pubkey,
+            &[
+                (5, vec![sig_s5]),
+                (10, vec![sig_s10_a, sig_s10_b]),
+                (15, vec![sig_s15]),
+            ],
+        );
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                until: Some(sig_s10_b.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_s15.to_string()]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -4772,43 +4999,15 @@ mod tests {
         let sig_s10_a = Signature::new_unique();
         let sig_s10_b = Signature::new_unique();
 
-        locker.with_svm_writer(|svm| {
-            store_test_tx(svm, sig_s5_a, &pubkey, 5);
-            store_test_tx(svm, sig_s5_b, &pubkey, 5);
-            store_test_tx(svm, sig_s10_a, &pubkey, 10);
-            store_test_tx(svm, sig_s10_b, &pubkey, 10);
-
-            svm.blocks
-                .store(
-                    5,
-                    BlockHeader {
-                        hash: String::new(),
-                        previous_blockhash: String::new(),
-                        parent_slot: 0,
-                        block_time: 0,
-                        block_height: 0,
-                        signatures: vec![sig_s5_a, sig_s5_b],
-                    },
-                )
-                .unwrap();
-
-            svm.blocks
-                .store(
-                    10,
-                    BlockHeader {
-                        hash: String::new(),
-                        previous_blockhash: String::new(),
-                        parent_slot: 0,
-                        block_time: 0,
-                        block_height: 0,
-                        signatures: vec![sig_s10_a, sig_s10_b],
-                    },
-                )
-                .unwrap();
-        });
-
-        let result = locker.get_signatures_for_address_local(&pubkey, None);
-        let sigs: Vec<String> = result.inner.iter().map(|s| s.signature.clone()).collect();
+        seed_signature_history(
+            &locker,
+            &pubkey,
+            &[
+                (5, vec![sig_s5_a, sig_s5_b]),
+                (10, vec![sig_s10_a, sig_s10_b]),
+            ],
+        );
+        let sigs = fetch_signature_strings(&locker, &pubkey, None);
 
         // Slot 10 txs first (descending), then slot 5 txs
         // Within each slot: last executed first
