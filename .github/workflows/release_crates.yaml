@@ -4,13 +4,25 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      crates:
+        description: 'Space-separated list of crates to publish (leave empty to publish all)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run (do not actually publish)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: release 
+    environment: release
+
     permissions:
-      id-token: write  # Required for OIDC token exchange with crates.io
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -35,8 +47,14 @@ jobs:
       - name: Publish crates
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          CRATES="surfpool-types surfpool-db surfpool-subgraph surfpool-gql surfpool-core surfpool-studio-ui"
+          # Use manually specified crates, or fall back to the full release list
+          if [ -n "${{ inputs.crates }}" ]; then
+            CRATES="${{ inputs.crates }}"
+          else
+            CRATES="surfpool-types surfpool-db surfpool-subgraph surfpool-gql surfpool-core surfpool-studio-ui"
+          fi
 
           for CRATE in $CRATES; do
             VERSION=$(cargo metadata --format-version=1 --no-deps \
@@ -56,6 +74,10 @@ jobs:
             fi
 
             echo "Publishing $CRATE@$VERSION..."
-            cargo publish --package "$CRATE"
-            sleep 15
+            if [ "$DRY_RUN" = "true" ]; then
+              cargo publish --package "$CRATE" --dry-run
+            else
+              cargo publish --package "$CRATE"
+              sleep 15
+            fi
           done
