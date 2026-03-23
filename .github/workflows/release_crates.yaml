@@ -4,13 +4,25 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      crates:
+        description: 'Space-separated list of crates to publish (leave empty to publish all)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run (do not actually publish)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: release 
+    environment: release
+
     permissions:
-      id-token: write  # Required for OIDC token exchange with crates.io
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -35,8 +47,13 @@ jobs:
       - name: Publish crates
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          CRATES="surfpool-types surfpool-db surfpool-subgraph surfpool-gql surfpool-core surfpool-studio-ui"
+          if [ -n "${{ inputs.crates }}" ]; then
+            CRATES="${{ inputs.crates }}"
+          else
+            CRATES="surfpool-types surfpool-db surfpool-subgraph surfpool-gql surfpool-core surfpool-studio-ui"
+          fi
 
           for CRATE in $CRATES; do
             VERSION=$(cargo metadata --format-version=1 --no-deps \
@@ -47,15 +64,20 @@ jobs:
               continue
             fi
 
-            PUBLISHED=$(cargo search "$CRATE" --limit 1 2>/dev/null \
-              | grep "^${CRATE} " | sed 's/.*"\(.*\)".*/\1/' || true)
-
-            if [ "$PUBLISHED" = "$VERSION" ]; then
+            # Check crates.io API to see if crate is already published
+            API_RESPONSE=$(curl -s \
+              -H "User-Agent: surfpool-release-workflow (github.com/solana-foundation/surfpool)" \
+              "https://crates.io/api/v1/crates/$CRATE/$VERSION")
+            if echo "$API_RESPONSE" | jq -e '.version' > /dev/null 2>&1; then
               echo "$CRATE@$VERSION is already published, skipping"
               continue
             fi
 
             echo "Publishing $CRATE@$VERSION..."
-            cargo publish --package "$CRATE"
-            sleep 15
+            if [ "$DRY_RUN" = "true" ]; then
+              cargo publish --package "$CRATE" --dry-run
+            else
+              cargo publish --package "$CRATE"
+              sleep 15
+            fi
           done

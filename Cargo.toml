@@ -160,13 +160,13 @@ url = { version = "1.7.2", default-features = false }
 uuid = "1.15.1"
 zip = { version = "0.6", features = ["deflate"], default-features = false }
 
-surfpool-core = { path = "crates/core", default-features = false }
-surfpool-db = { path = "crates/db" }
-surfpool-gql = { path = "crates/gql", default-features = false }
-surfpool-mcp = { path = "crates/mcp", default-features = false }
-surfpool-studio-ui = { path = "crates/studio", default-features = false }
-surfpool-subgraph = { path = "crates/subgraph", default-features = false }
-surfpool-types = { path = "crates/types", default-features = false }
+surfpool-core = { path = "crates/core", default-features = false, version = "1.1.1"}
+surfpool-db = { path = "crates/db", version = "1.1.1" }
+surfpool-gql = { path = "crates/gql", default-features = false, version = "1.1.1" }
+surfpool-mcp = { path = "crates/mcp", default-features = false, version = "1.1.1" }
+surfpool-studio-ui = { path = "crates/studio", default-features = false, version = "0.1.1" }
+surfpool-subgraph = { path = "crates/subgraph", default-features = false, version = "1.1.1" }
+surfpool-types = { path = "crates/types", default-features = false, version = "1.1.1" }
 
 txtx-addon-kit = "0.4.13"
 txtx-addon-network-svm = { version = "0.3.20" }

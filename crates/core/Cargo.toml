@@ -104,7 +104,7 @@ txtx-addon-network-svm = { workspace = true }
 
 [dev-dependencies]
 test-case = { workspace = true }
-env_logger = "*"
+env_logger = "0.11"
 tempfile = { workspace = true }
 spl-token-metadata-interface = { workspace = true }
 
