@@ -786,6 +786,17 @@ impl SurfnetSvmLocker {
 
 /// Get signatures for Addresses
 impl SurfnetSvmLocker {
+    /// Returns local `getSignaturesForAddress` results in the same newest-first order expected by
+    /// the Solana RPC.
+    ///
+    /// The implementation has to do more than filter by slot:
+    /// - transactions are ordered by descending slot
+    /// - transactions within the same slot are ordered by their execution order in the block
+    /// - `before` and `until` are pagination boundaries in that final ordered stream
+    ///
+    /// To preserve those semantics, we first collect matching transactions, reconstruct their
+    /// intra-slot ordering from block headers, sort the full result stream, and only then apply
+    /// the `before` / `until` window followed by `limit`.
     pub fn get_signatures_for_address_local(
         &self,
         pubkey: &Pubkey,
@@ -855,6 +866,8 @@ impl SurfnetSvmLocker {
                 })
                 .unwrap_or_default();
 
+            // `getSignaturesForAddress` is ordered newest-first, but transactions that share a
+            // slot also need to preserve their execution order within that block.
             let unique_slots: HashSet<u64> = sigs.iter().map(|s| s.slot).collect();
             let mut sig_position: HashMap<String, usize> = HashMap::new();
             for slot in unique_slots {
@@ -879,7 +892,12 @@ impl SurfnetSvmLocker {
                 .collect();
 
             let window = {
+                // `before` and `until` are boundaries in the final ordered result stream, not
+                // just slot filters. We compute a [start..end) index range after sorting so
+                // same-slot pagination behaves correctly and `until` stays exclusive.
                 let start = match before.as_deref() {
+                    // `before` is exclusive, so we start one item after the boundary when it
+                    // exists. If it does not exist locally, the local window is empty.
                     Some(before) => match sigs.iter().position(|sig| sig.signature == before) {
                         Some(idx) => idx + 1,
                         None => sigs.len(),
@@ -888,6 +906,9 @@ impl SurfnetSvmLocker {
                 };
 
                 let end = match until.as_deref() {
+                    // `until` is also exclusive, so the boundary itself is not included. We only
+                    // search within `sigs[start..]` so the end boundary is resolved relative to the
+                    // already-trimmed start of the window. If it is missing, we keep the full tail.
                     Some(until) => {
                         match sigs[start..].iter().position(|sig| sig.signature == until) {
                             Some(offset) => start + offset,
@@ -899,6 +920,7 @@ impl SurfnetSvmLocker {
                 start..end
             };
 
+            // Apply the pagination window first, then enforce the RPC limit on that slice.
             sigs[window].iter().take(limit).cloned().collect()
         })
     }
