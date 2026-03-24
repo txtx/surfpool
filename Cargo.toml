@@ -17,7 +17,6 @@ members = [
     "crates/gql",
     "crates/mcp",
     "crates/studio",
-    "crates/subgraph",
     "crates/types",
 ]
 exclude = ["examples/*"]
@@ -165,7 +164,6 @@ surfpool-db = { path = "crates/db", version = "1.1.1" }
 surfpool-gql = { path = "crates/gql", default-features = false, version = "1.1.1" }
 surfpool-mcp = { path = "crates/mcp", default-features = false, version = "1.1.1" }
 surfpool-studio-ui = { path = "crates/studio", default-features = false, version = "0.1.1" }
-surfpool-subgraph = { path = "crates/subgraph", default-features = false, version = "1.1.1" }
 surfpool-types = { path = "crates/types", default-features = false, version = "1.1.1" }
 
 txtx-addon-kit = "0.4.13"

@@ -35,18 +35,14 @@ use solana_geyser_plugin_manager::geyser_plugin_manager::{
 use solana_message::SimpleAddressLoader;
 use solana_transaction::sanitized::{MessageHash, SanitizedTransaction};
 use solana_transaction_status::RewardsAndNumPartitions;
-#[cfg(feature = "subgraph")]
-use surfpool_subgraph::SurfpoolSubgraphPlugin;
 use surfpool_types::{
     BlockProductionMode, ClockCommand, ClockEvent, DEFAULT_MAINNET_RPC_URL, DataIndexingCommand,
-    SimnetCommand, SimnetConfig, SimnetEvent, SubgraphCommand, SubgraphPluginConfig,
-    SurfpoolConfig,
+    SimnetCommand, SimnetConfig, SimnetEvent, SurfpoolConfig,
 };
 type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use txtx_addon_kit::helpers::fs::FileLocation;
 
 use crate::{
-    PluginManagerCommand,
     rpc::{
         self, RunloopContext, SurfpoolMiddleware, SurfpoolWebsocketMeta,
         SurfpoolWebsocketMiddleware, accounts_data::AccountsData, accounts_scan::AccountsScan,
@@ -82,7 +78,6 @@ fn check_port_availability(addr: SocketAddr, server_type: &str) -> Result<(), St
 pub async fn start_local_surfnet_runloop(
     svm_locker: SurfnetSvmLocker,
     config: SurfpoolConfig,
-    subgraph_commands_tx: Sender<SubgraphCommand>,
     simnet_commands_tx: Sender<SimnetCommand>,
     simnet_commands_rx: Receiver<SimnetCommand>,
     geyser_events_rx: Receiver<GeyserEvent>,
@@ -144,7 +139,7 @@ pub async fn start_local_surfnet_runloop(
 
     let simnet_events_tx_cc = svm_locker.simnet_events_tx();
 
-    let (plugin_manager_commands_rx, _rpc_handle, _ws_handle) = start_rpc_servers_runloop(
+    let (_rpc_handle, _ws_handle) = start_rpc_servers_runloop(
         &config,
         &simnet_commands_tx,
         svm_locker.clone(),
@@ -156,8 +151,6 @@ pub async fn start_local_surfnet_runloop(
 
     match start_geyser_runloop(
         config.plugin_config_path.clone(),
-        plugin_manager_commands_rx,
-        subgraph_commands_tx.clone(),
         simnet_events_tx_cc.clone(),
         geyser_events_rx,
     ) {
@@ -522,8 +515,6 @@ pub fn start_clock_runloop(
 
 fn start_geyser_runloop(
     plugin_config_paths: Vec<PathBuf>,
-    plugin_manager_commands_rx: Receiver<PluginManagerCommand>,
-    subgraph_commands_tx: Sender<SubgraphCommand>,
     simnet_events_tx: Sender<SimnetEvent>,
     geyser_events_rx: Receiver<GeyserEvent>,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
@@ -607,108 +598,7 @@ fn start_geyser_runloop(
 
         let ipc_router = RouterProxy::new();
 
-        // Helper function to load a subgraph plugin
-        #[cfg(feature = "subgraph")]
-        let load_subgraph_plugin = |uuid: uuid::Uuid,
-                                      config: txtx_addon_network_svm_types::subgraph::PluginConfig,
-                                      notifier: crossbeam_channel::Sender<String>,
-                                      surfpool_plugin_manager: &mut Vec<Box<dyn GeyserPlugin>>,
-                                      plugin_map: &mut HashMap<uuid::Uuid, (usize, String)>,
-                                      indexing_enabled: &mut bool|
-         -> Result<(), String> {
-            if let Err(e) = subgraph_commands_tx.send(SubgraphCommand::CreateCollection(
-                uuid,
-                config.data.clone(),
-                notifier,
-            )){
-                return Err(format!("Failed to send CreateCollection command: {:?}", e));
-            };
 
-            let mut plugin = SurfpoolSubgraphPlugin::default();
-
-            let (server, ipc_token) =
-                IpcOneShotServer::<IpcReceiver<DataIndexingCommand>>::new()
-                    .expect("Failed to create IPC one-shot server.");
-            let subgraph_plugin_config = SubgraphPluginConfig {
-                uuid,
-                ipc_token,
-                subgraph_request: config.data.clone(),
-            };
-
-            let config_file = serde_json::to_string(&subgraph_plugin_config)
-                .map_err(|e| format!("Failed to serialize subgraph plugin config: {:?}", e))?;
-
-            plugin
-                .on_load(&config_file, false)
-                .map_err(|e| format!("Failed to load Geyser plugin: {:?}", e))?;
-
-                match server.accept() {
-                    Ok((_, rx)) => {
-                        let subgraph_rx = ipc_router
-                            .route_ipc_receiver_to_new_crossbeam_receiver::<DataIndexingCommand>(rx);
-                        if let Err(e) = subgraph_commands_tx.send(SubgraphCommand::ObserveCollection(subgraph_rx)) {
-                            return Err(format!("Failed to send ObserveCollection command: {:?}", e));
-                        }
-                    }
-                    Err(e) => {
-                        return Err(format!("Failed to accept IPC connection for subgraph {}: {:?}", uuid, e));
-                    }
-                };
-
-            *indexing_enabled = true;
-
-            let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
-            let plugin_index = surfpool_plugin_manager.len();
-            surfpool_plugin_manager.push(plugin);
-            plugin_map.insert(uuid, (plugin_index, config.plugin_name.to_string()));
-
-            Ok(())
-        };
-
-        // Helper function to unload a plugin by UUID
-        #[cfg(feature = "subgraph")]
-        let unload_plugin_by_uuid = |uuid: uuid::Uuid,
-                                       surfpool_plugin_manager: &mut Vec<Box<dyn GeyserPlugin>>,
-                                       plugin_map: &mut HashMap<uuid::Uuid, (usize, String)>,
-                                       indexing_enabled: &mut bool|
-         -> Result<(), String> {
-            let plugin_index = plugin_map
-                .get(&uuid)
-                .ok_or_else(|| format!("Plugin {} not found", uuid))?
-                .0;
-
-            if plugin_index >= surfpool_plugin_manager.len() {
-                return Err(format!("Plugin index {} out of bounds", plugin_index));
-            }
-
-            // Destroy database/schema for this collection
-            if let Err(e) = subgraph_commands_tx.send(SubgraphCommand::DestroyCollection(uuid)){
-                return Err(format!("Failed to send DestroyCollection command for {}: {:?}", uuid, e));
-            }
-
-            // Unload the plugin
-            surfpool_plugin_manager[plugin_index].on_unload();
-
-            // Remove from tracking structures
-            surfpool_plugin_manager.remove(plugin_index);
-            plugin_map.remove(&uuid);
-
-            // Adjust indices after removal
-            for (index, _) in plugin_map.values_mut() {
-                if *index > plugin_index {
-                    *index -= 1;
-                }
-            }
-
-            // Disable indexing if no plugins remain
-            if surfpool_plugin_manager.is_empty() {
-                *indexing_enabled = false;
-                //  Add Logging When Indexing Disabled
-                log_info("All plugins unloaded,indexing disabled".to_string())
-            }
-
-            Ok(())
-        };
 
         let err = loop {
             use agave_geyser_plugin_interface::geyser_plugin_interface::{ReplicaAccountInfoV3, ReplicaAccountInfoVersions};
@@ -716,84 +606,6 @@ fn start_geyser_runloop(
             use crate::types::GeyserAccountUpdate;
 
             select! {
-                recv(plugin_manager_commands_rx) -> msg => {
-                    match msg {
-                        Ok(event) => {
-                            match event {
-                                #[cfg(not(feature = "subgraph"))]
-                                PluginManagerCommand::LoadConfig(_, _, _) => {
-                                    continue;
-                                }
-                                #[cfg(feature = "subgraph")]
-                                PluginManagerCommand::LoadConfig(uuid, config, notifier) => {
-                                    if let Err(e) = load_subgraph_plugin(uuid, config, notifier, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
-                                        let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to load plugin: {}", e)));
-                                    }
-                                }
-                                #[cfg(not(feature = "subgraph"))]
-                                PluginManagerCommand::UnloadPlugin(_, _) => {
-                                    continue;
-                                }
-                                #[cfg(feature = "subgraph")]
-                                PluginManagerCommand::UnloadPlugin(uuid, notifier) => {
-                                    match  unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
-                                        Ok(_)=>{
-                                            log_info(format!("Successfully unloaded plugin with UUID {}", uuid));
-                                            let _ = notifier.send(Ok(()));
-                                        }
-                                        Err(e)=>{
-                                            log_error(format!("Failed to unload plugin {}: {}", uuid, e));
-                                            let _ = notifier.send(Err(e));
-                                        }
-                                    }
-                                }
-                                #[cfg(not(feature = "subgraph"))]
-                                PluginManagerCommand::ReloadPlugin(_, _, _) => {
-                                    continue;
-                                }
-                                #[cfg(feature = "subgraph")]
-                                PluginManagerCommand::ReloadPlugin(uuid, config, notifier) => {
-                                    // Unload the old plugin
-                                    match  unload_plugin_by_uuid(uuid, &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
-                                        Ok(_)=>{
-                                            log_info(format!("Unloaded plugin with UUID {} for reload", uuid));
-
-                                            // Load the new plugin with the same UUID
-                                            match load_subgraph_plugin(uuid, config, notifier.clone(), &mut surfpool_plugin_manager, &mut plugin_map, &mut indexing_enabled) {
-                                                Ok(_)=>{
-                                                    log_info(format!("Successfully reloaded plugin with UUID {}", uuid));
-                                                    let _ = notifier.send(format!("Plugin {} reloaded successfully", uuid));
-                                                }
-                                                Err(e)=>{
-                                                    let error_msg = format!("Failed to reload plugin {}: {}", uuid, e);
-                                                    log_error(error_msg.clone());
-                                                    let _ = notifier.send(error_msg);
-                                                }
-                                            }
-                                        }
-                                        Err(e)=>{
-                                            let error_msg = format!("Failed to unload plugin {} during reload: {}", uuid, e);
-                                            log_error(error_msg.clone());
-                                            let _ = notifier.send(error_msg);
-                                        }
-                                    }
-                                }
-                                PluginManagerCommand::ListPlugins(notifier) => {
-                                    let plugin_list: Vec<crate::PluginInfo> = plugin_map.iter().map(|(uuid, (_, plugin_name))| {
-                                        crate::PluginInfo {
-                                            plugin_name: plugin_name.clone(),
-                                            uuid: uuid.to_string(),
-                                        }
-                                    }).collect();
-                                    let _ = notifier.send(plugin_list);
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            break format!("Failed to read plugin manager command: {:?}", e);
-                        },
-                    }
-                },
                 recv(geyser_events_rx) -> msg => match msg {
                     Err(e) => {
                         break format!("Failed to read new transaction to send to Geyser plugin: {e}");
@@ -1002,14 +814,7 @@ async fn start_rpc_servers_runloop(
     simnet_commands_tx: &Sender<SimnetCommand>,
     svm_locker: SurfnetSvmLocker,
     remote_rpc_client: &Option<SurfnetRemoteClient>,
-) -> Result<
-    (
-        Receiver<PluginManagerCommand>,
-        JoinHandle<()>,
-        JoinHandle<()>,
-    ),
-    String,
-> {
+) -> Result<(JoinHandle<()>, JoinHandle<()>), String> {
     let rpc_addr: SocketAddr = config
         .rpc
         .get_rpc_base_url()
@@ -1024,13 +829,11 @@ async fn start_rpc_servers_runloop(
     check_port_availability(rpc_addr, "RPC")?;
     check_port_availability(ws_addr, "WebSocket")?;
 
-    let (plugin_manager_commands_tx, plugin_manager_commands_rx) = unbounded();
     let simnet_events_tx = svm_locker.simnet_events_tx();
 
     let middleware = SurfpoolMiddleware::new(
         svm_locker,
         simnet_commands_tx,
-        &plugin_manager_commands_tx,
         &config.rpc,
         remote_rpc_client,
     );
@@ -1038,7 +841,7 @@ async fn start_rpc_servers_runloop(
     let rpc_handle =
         start_http_rpc_server_runloop(config, middleware.clone(), simnet_events_tx.clone()).await?;
     let ws_handle = start_ws_rpc_server_runloop(config, middleware, simnet_events_tx).await?;
-    Ok((plugin_manager_commands_rx, rpc_handle, ws_handle))
+    Ok((rpc_handle, ws_handle))
 }
 
 async fn start_http_rpc_server_runloop(
@@ -1136,9 +939,6 @@ async fn start_ws_rpc_server_runloop(
                             id: None,
                             svm_locker: middleware.surfnet_svm.clone(),
                             simnet_commands_tx: middleware.simnet_commands_tx.clone(),
-                            plugin_manager_commands_tx: middleware
-                                .plugin_manager_commands_tx
-                                .clone(),
                             remote_rpc_client: middleware.remote_rpc_client.clone(),
                             rpc_config: middleware.config.clone(),
                         };
