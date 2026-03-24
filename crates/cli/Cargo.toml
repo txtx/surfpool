@@ -57,7 +57,6 @@ toml = { workspace = true, optional = true }
 url = { workspace = true }
 
 surfpool-core = { workspace = true }
-surfpool-gql = { workspace = true }
 surfpool-mcp = { workspace = true }
 surfpool-studio-ui = { workspace = true }
 surfpool-types = { workspace = true }

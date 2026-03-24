@@ -24,17 +24,9 @@ use log::{debug, error, info, trace, warn};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use surfpool_core::scenarios::TemplateRegistry;
-use surfpool_gql::{
-    DynamicSchema,
-    db::schema::collections,
-    new_dynamic_schema,
-    query::{CollectionsMetadataLookup, Dataloader, DataloaderContext, SqlStore},
-    types::{CollectionEntry, CollectionEntryData, collections::CollectionMetadata, sql},
-};
 use surfpool_studio_ui::serve_studio_static_files;
 use surfpool_types::{
-    DataIndexingCommand, OverrideTemplate, SanitizedConfig, Scenario, SubgraphCommand,
-    SubgraphEvent, SurfpoolConfig,
+    DataIndexingCommand, OverrideTemplate, SanitizedConfig, Scenario, SubgraphEvent, SurfpoolConfig,
 };
 use txtx_core::kit::types::types::Value;
 use txtx_gql::kit::uuid::Uuid;
