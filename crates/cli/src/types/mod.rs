@@ -45,11 +45,16 @@ impl Framework {
                 _ => "svm::get_program_from_native_project",
             };
             let bin_path = format!("{}/{}.so", artifacts.trim_end_matches('/'), program_name);
-            // Pass bin_path as the 4th argument (program_name, keypair_path, idl_path, bin_path)
+            let keypair_path = format!(
+                "{}/{}-keypair.json",
+                artifacts.trim_end_matches('/'),
+                program_name
+            );
+            // Override keypair_path (2nd arg) and bin_path (4th arg) to use artifacts dir
             let old = format!("program = {}(\"{}\") ", get_program_fn, program_name);
             let new = format!(
-                "program = {}(\"{}\", null, null, \"{}\") ",
-                get_program_fn, program_name, bin_path
+                "program = {}(\"{}\", \"{}\", null, \"{}\") ",
+                get_program_fn, program_name, keypair_path, bin_path
             );
             base.replace(&old, &new)
         } else {
