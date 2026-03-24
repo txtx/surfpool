@@ -26,8 +26,7 @@ pub use litesvm;
 use solana_pubkey::Pubkey;
 pub use solana_rpc_client;
 use surfnet::{GeyserEvent, locker::SurfnetSvmLocker, svm::SurfnetSvm};
-use surfpool_types::{SimnetCommand, SubgraphCommand, SurfpoolConfig};
-use txtx_addon_network_svm_types::subgraph::PluginConfig;
+use surfpool_types::{SimnetCommand, SurfpoolConfig};
 use uuid::Uuid;
 
 pub const SURFPOOL_IDENTITY_PUBKEY: Pubkey =

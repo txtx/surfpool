@@ -8,7 +8,7 @@ use std::{
 
 use blake3::Hash;
 use chrono::{DateTime, Local};
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Sender;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Visitor};
 use serde_with::{BytesOrString, serde_as};
 use solana_account::Account;
@@ -22,7 +22,6 @@ use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_context::TransactionReturnData;
 use solana_transaction_error::TransactionError;
 use txtx_addon_kit::indexmap::IndexMap;
-use txtx_addon_network_svm_types::subgraph::SubgraphRequest;
 use uuid::Uuid;
 
 use crate::{DEFAULT_MAINNET_RPC_URL, SvmFeatureConfig};
@@ -406,14 +405,6 @@ pub mod pubkey_option_account_map {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum SubgraphCommand {
-    CreateCollection(Uuid, SubgraphRequest, Sender<String>),
-    ObserveCollection(Receiver<DataIndexingCommand>),
-    DestroyCollection(Uuid), // Clean up collection on plugin unload
-    Shutdown,
-}
-
 #[derive(Debug)]
 pub enum SimnetEvent {
     /// Surfnet is ready, with the initial count of processed transactions from storage
@@ -722,13 +713,6 @@ impl Default for StudioConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SubgraphPluginConfig {
-    pub uuid: Uuid,
-    pub ipc_token: String,
-    pub subgraph_request: SubgraphRequest,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct CreateSurfnetRequest {
@@ -783,30 +767,6 @@ impl CloudSurfnetRpcGating {
             ],
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
-pub struct CreateSubgraphRequest {
-    pub subgraph_id: Uuid,
-    pub subgraph_revision_id: Uuid,
-    pub revision_number: i32,
-    pub start_block: i64,
-    pub network: String,
-    pub workspace_slug: String,
-    pub request: SubgraphRequest,
-    pub settings: Option<CloudSubgraphSettings>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
-pub struct CloudSubgraphSettings {}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "snake_case")]
-pub enum SvmCloudCommand {
-    CreateSurfnet(CreateSurfnetRequest),
-    CreateSubgraph(CreateSubgraphRequest),
 }
 
 #[derive(Serialize, Deserialize)]
