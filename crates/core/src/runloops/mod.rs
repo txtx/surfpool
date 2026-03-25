@@ -1053,12 +1053,28 @@ async fn start_http_rpc_server_runloop(
         .map_err(|e| e.to_string())?;
 
     let mut io = MetaIoHandler::with_middleware(middleware);
+
+    // Cheatcodes should be added first and are a special case. One of the cheatcode methods needs access
+    // to the list of all cheatcode methods. The IoHandler allows us to iterate over them, so we're
+    // initializing and storing that list here.
+    {
+        let cheatcode_methods: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
+        let mut cheatcodes_impl = rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc {
+            registered_methods: Arc::clone(&cheatcode_methods),
+        };
+        io.extend_with(cheatcodes_impl.to_delegate());
+
+        cheatcode_methods
+            .write()
+            .unwrap()
+            .extend(io.iter().map(|(n, _)| n.clone()).collect::<Vec<String>>());
+    }
+
     io.extend_with(rpc::minimal::SurfpoolMinimalRpc.to_delegate());
     io.extend_with(rpc::full::SurfpoolFullRpc.to_delegate());
     io.extend_with(rpc::accounts_data::SurfpoolAccountsDataRpc.to_delegate());
     io.extend_with(rpc::accounts_scan::SurfpoolAccountsScanRpc.to_delegate());
     io.extend_with(rpc::bank_data::SurfpoolBankDataRpc.to_delegate());
-    io.extend_with(rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc.to_delegate());
     io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());
 
     if !config.plugin_config_path.is_empty() {
@@ -1141,6 +1157,7 @@ async fn start_ws_rpc_server_runloop(
                                 .clone(),
                             remote_rpc_client: middleware.remote_rpc_client.clone(),
                             rpc_config: middleware.config.clone(),
+                            cheatcode_config: middleware.cheatcode_config.clone(),
                         };
                         Some(SurfpoolWebsocketMeta::new(
                             runloop_context,
