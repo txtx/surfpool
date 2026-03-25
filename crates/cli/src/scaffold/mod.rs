@@ -76,20 +76,23 @@ impl ProgramFrameworkData {
 pub async fn detect_program_frameworks(
     manifest_path: &str,
     test_paths: &[String],
+    artifacts_path: Option<&str>,
 ) -> Result<Option<ProgramFrameworkData>, String> {
     let manifest_location = FileLocation::from_path_string(manifest_path)?;
     let base_dir = manifest_location.get_parent_location()?;
     // Look for Anchor project layout
     // Note: Poseidon projects generate Anchor.toml files, so they will also be identified here
-    if let Some(res) = anchor::try_get_programs_from_project(base_dir.clone(), test_paths)
-        .map_err(|e| format!("Invalid Anchor project: {e}"))?
+    if let Some(res) =
+        anchor::try_get_programs_from_project(base_dir.clone(), test_paths, artifacts_path)
+            .map_err(|e| format!("Invalid Anchor project: {e}"))?
     {
         return Ok(Some(res));
     }
 
     // Look for Steel project layout
-    if let Some((framework, programs)) = steel::try_get_programs_from_project(base_dir.clone())
-        .map_err(|e| format!("Invalid Steel project: {e}"))?
+    if let Some((framework, programs)) =
+        steel::try_get_programs_from_project(base_dir.clone(), artifacts_path)
+            .map_err(|e| format!("Invalid Steel project: {e}"))?
     {
         return Ok(Some(ProgramFrameworkData::partial(framework, programs)));
     }
@@ -102,15 +105,17 @@ pub async fn detect_program_frameworks(
     }
 
     // Look for Pinocchio project layout
-    if let Some((framework, programs)) = pinocchio::try_get_programs_from_project(base_dir.clone())
-        .map_err(|e| format!("Invalid Pinocchio project: {e}"))?
+    if let Some((framework, programs)) =
+        pinocchio::try_get_programs_from_project(base_dir.clone(), artifacts_path)
+            .map_err(|e| format!("Invalid Pinocchio project: {e}"))?
     {
         return Ok(Some(ProgramFrameworkData::partial(framework, programs)));
     }
 
     // Look for Native project layout
-    if let Some((framework, programs)) = native::try_get_programs_from_project(base_dir.clone())
-        .map_err(|e| format!("Invalid Native project: {e}"))?
+    if let Some((framework, programs)) =
+        native::try_get_programs_from_project(base_dir.clone(), artifacts_path)
+            .map_err(|e| format!("Invalid Native project: {e}"))?
     {
         return Ok(Some(ProgramFrameworkData::partial(framework, programs)));
     }
@@ -142,6 +147,7 @@ pub fn scaffold_in_memory_iac(
     accounts: &Option<Vec<AccountEntry>>,
     accounts_dir: &Option<Vec<AccountDirEntry>>,
     generate_subgraphs: bool,
+    artifacts_path: Option<&str>,
 ) -> Result<(String, RunbookSources, WorkspaceManifest), String> {
     let mut deployment_runbook_src: String = String::new();
 
@@ -157,8 +163,10 @@ pub fn scaffold_in_memory_iac(
     for program_metadata in programs.iter() {
         if program_metadata.so_exists {
             deployment_runbook_src.push_str(
-                &framework
-                    .get_in_memory_interpolated_program_deployment_template(&program_metadata.name),
+                &framework.get_in_memory_interpolated_program_deployment_template(
+                    &program_metadata.name,
+                    artifacts_path,
+                ),
             );
 
             if generate_subgraphs {

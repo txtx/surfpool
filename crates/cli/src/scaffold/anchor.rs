@@ -44,6 +44,7 @@ fn should_generate_subgraphs(anchor_version: &Option<String>) -> bool {
 pub fn try_get_programs_from_project(
     base_location: FileLocation,
     test_suite_paths: &[String],
+    artifacts_path: Option<&str>,
 ) -> Result<Option<ProgramFrameworkData>, String> {
     let mut manifest_location = base_location.clone();
     manifest_location.append_path("Anchor.toml")?;
@@ -60,10 +61,16 @@ pub fn try_get_programs_from_project(
         if let Some((_, deployments)) = manifest.programs.iter().next() {
             for (program_name, deployment) in deployments.iter() {
                 let so_exists = {
-                    let mut so_path = target_location.clone();
-                    so_path.append_path("deploy")?;
-                    so_path.append_path(&format!("{}.so", program_name))?;
-                    so_path.exists()
+                    if let Some(artifacts) = artifacts_path {
+                        let mut so_path = base_location.clone();
+                        so_path.append_path(&format!("{}/{}.so", artifacts, program_name))?;
+                        so_path.exists()
+                    } else {
+                        let mut so_path = target_location.clone();
+                        so_path.append_path("deploy")?;
+                        so_path.append_path(&format!("{}.so", program_name))?;
+                        so_path.exists()
+                    }
                 };
                 programs.push(ProgramMetadata::new(
                     program_name,
