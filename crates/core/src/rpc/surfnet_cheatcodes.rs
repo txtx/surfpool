@@ -2087,7 +2087,7 @@ mod tests {
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_system_interface::instruction::create_account;
-    use solana_transaction::Transaction;
+    use solana_transaction::{Transaction, versioned::VersionedTransaction};
     use spl_associated_token_account_interface::{
         address::get_associated_token_address_with_program_id,
         instruction::create_associated_token_account,
@@ -4210,5 +4210,207 @@ mod tests {
         assert!(result.context.slot > 0, "Context slot should be valid");
 
         println!("✅ Response context is valid");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_write_program_small_no_minimum_program_artifacts() {
+        // Regression test: writing a program smaller than minimum_program.so (3312 bytes)
+        // should not leave leftover minimum_program.so bytes in the account.
+        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let program_id = Keypair::new();
+
+        let program_data = vec![0xAB; 100];
+        let result = client
+            .rpc
+            .write_program(
+                Some(client.context.clone()),
+                program_id.pubkey().to_string(),
+                hex::encode(&program_data),
+                0,
+                None,
+            )
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "Failed to write program: {:?}",
+            result.err()
+        );
+
+        let program_data_address =
+            solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+        let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
+        });
+
+        let metadata_size =
+            solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata(
+            );
+
+        // Account data length should be exactly metadata + program data, not metadata + 3312
+        assert_eq!(
+            account.data.len(),
+            metadata_size + 100,
+            "Account data length should be metadata_size ({}) + 100 = {}, but was {}",
+            metadata_size,
+            metadata_size + 100,
+            account.data.len()
+        );
+
+        // Verify written content matches exactly
+        let written_data = &account.data[metadata_size..];
+        assert_eq!(
+            written_data, &program_data,
+            "Written data should match exactly"
+        );
+
+        // Verify no trailing non-zero bytes beyond written data
+        assert!(
+            account.data[metadata_size + 100..].is_empty(),
+            "There should be no trailing bytes beyond the written data"
+        );
+
+        println!("✅ Small program has no minimum_program.so artifacts");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_write_program_exact_account_size() {
+        // Regression test: verify account size is exactly correct for various data sizes,
+        // including sizes around the minimum_program.so boundary (3312 bytes).
+        let client = TestSetup::new(SurfnetCheatcodesRpc);
+
+        let metadata_size =
+            solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata(
+            );
+
+        for data_len in [1usize, 100, 3311, 3312, 3313, 5000] {
+            let program_id = Keypair::new();
+            let program_data: Vec<u8> = (0..data_len).map(|i| (i % 256) as u8).collect();
+
+            let result = client
+                .rpc
+                .write_program(
+                    Some(client.context.clone()),
+                    program_id.pubkey().to_string(),
+                    hex::encode(&program_data),
+                    0,
+                    None,
+                )
+                .await;
+
+            assert!(
+                result.is_ok(),
+                "Failed to write program of size {}: {:?}",
+                data_len,
+                result.err()
+            );
+
+            let program_data_address =
+                solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+            let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+                svm_reader
+                    .inner
+                    .get_account(&program_data_address)
+                    .unwrap()
+                    .unwrap()
+            });
+
+            assert_eq!(
+                account.data.len(),
+                metadata_size + data_len,
+                "For data_len={}, account data length should be {} but was {}",
+                data_len,
+                metadata_size + data_len,
+                account.data.len()
+            );
+
+            let written_data = &account.data[metadata_size..metadata_size + data_len];
+            assert_eq!(
+                written_data, &program_data,
+                "For data_len={}, written content should match exactly",
+                data_len
+            );
+        }
+
+        println!("✅ All program sizes produce exact account sizes");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_write_program_execution_uses_written_bytes_not_noop() {
+        // Regression test: after write_program, executing the program should use
+        // the written bytes, not the noop placeholder from init_programdata_account.
+        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let program_id = Keypair::new();
+
+        // Create an "error program" ELF: identical to noop but returns r0=1 (error)
+        // instead of r0=0 (success). This lets us distinguish noop vs real execution.
+        let mut error_program_elf = crate::surfnet::noop_program::NOOP_PROGRAM_ELF.to_vec();
+        // Byte 124 is the first byte of the imm field in `mov64 r0, 0` at .text offset.
+        // Changing it to 1 makes the instruction `mov64 r0, 1` (program returns error).
+        error_program_elf[124] = 0x01;
+
+        // Write the error program
+        let result = client
+            .rpc
+            .write_program(
+                Some(client.context.clone()),
+                program_id.pubkey().to_string(),
+                hex::encode(&error_program_elf),
+                0,
+                None,
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "Failed to write program: {:?}",
+            result.err()
+        );
+
+        // Create a payer and fund it
+        let payer = Keypair::new();
+        client
+            .context
+            .svm_locker
+            .airdrop(&payer.pubkey(), 1_000_000_000)
+            .unwrap()
+            .unwrap();
+
+        // Build a transaction invoking the written program
+        let recent_blockhash = client
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+        // Build a minimal instruction that invokes the written program
+        let invoke_ix = solana_instruction::Instruction {
+            program_id: program_id.pubkey(),
+            accounts: vec![],
+            data: vec![],
+        };
+        let message = solana_message::Message::new_with_blockhash(
+            &[invoke_ix],
+            Some(&payer.pubkey()),
+            &recent_blockhash,
+        );
+        let tx = VersionedTransaction::try_new(
+            solana_message::VersionedMessage::Legacy(message),
+            &[&payer],
+        )
+        .unwrap();
+
+        // Simulate the transaction
+        let sim_result = client.context.svm_locker.simulate_transaction(tx, false);
+
+        // The error program returns r0=1, which should cause an InstructionError.
+        // If the noop (r0=0) is still cached, this would incorrectly succeed.
+        assert!(
+            sim_result.is_err(),
+            "Transaction should fail because the written program returns error (r0=1). \
+             If it succeeded, the noop placeholder is still being executed instead of \
+             the written program bytes."
+        );
     }
 }
