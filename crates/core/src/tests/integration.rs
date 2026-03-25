@@ -54,7 +54,7 @@ use crate::{
         minimal::{Minimal, MinimalClient, SurfpoolMinimalRpc},
         surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
-    runloops::start_local_surfnet_runloop,
+    runloops::{setup_profiling, start_local_surfnet_runloop},
     storage::tests::TestType,
     surfnet::{SignatureSubscriptionType, locker::SurfnetSvmLocker, svm::SurfnetSvm},
     tests::helpers::get_free_port,
@@ -1553,6 +1553,7 @@ async fn test_profile_transaction_basic(test_type: TestType) {
     // Set up test environment
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    setup_profiling(&svm_locker);
 
     // Set up test accounts
     let payer = Keypair::new();
@@ -1640,6 +1641,7 @@ async fn test_profile_transaction_basic(test_type: TestType) {
 async fn test_profile_transaction_multi_instruction_basic(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    setup_profiling(&svm_locker);
 
     let payer = Keypair::new();
     let lamports_to_send = 1_000_000;
@@ -2038,6 +2040,7 @@ async fn test_profile_transaction_with_tag(test_type: TestType) {
     // Set up test environment
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    setup_profiling(&svm_locker);
 
     // Set up test accounts
     let payer = Keypair::new();
@@ -2198,6 +2201,7 @@ async fn test_profile_transaction_with_tag(test_type: TestType) {
 async fn test_profile_transaction_token_transfer(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    setup_profiling(&svm_locker);
 
     // Set up test accounts
     let payer = Keypair::new();
@@ -2638,6 +2642,7 @@ async fn test_profile_transaction_token_transfer(test_type: TestType) {
 async fn test_profile_transaction_insufficient_funds(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    setup_profiling(&svm_locker);
 
     // Set up test accounts with insufficient funds
     let payer = Keypair::new();
@@ -2708,6 +2713,7 @@ async fn test_profile_transaction_insufficient_funds(test_type: TestType) {
 async fn test_profile_transaction_multi_instruction_failure(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    setup_profiling(&svm_locker);
 
     // Set up test accounts
     let payer = Keypair::new();
@@ -2792,6 +2798,7 @@ async fn test_profile_transaction_multi_instruction_failure(test_type: TestType)
 async fn test_profile_transaction_with_encoding(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    setup_profiling(&svm_locker);
 
     // Set up test accounts
     let payer = Keypair::new();
@@ -2864,6 +2871,7 @@ async fn test_profile_transaction_with_encoding(test_type: TestType) {
 async fn test_profile_transaction_with_tag_and_retrieval(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    setup_profiling(&svm_locker);
 
     // Set up test accounts
     let payer = Keypair::new();
@@ -2968,6 +2976,7 @@ async fn test_profile_transaction_with_tag_and_retrieval(test_type: TestType) {
 async fn test_profile_transaction_empty_instruction(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    setup_profiling(&svm_locker);
 
     // Set up test accounts
     let payer = Keypair::new();
@@ -3028,6 +3037,7 @@ async fn test_profile_transaction_empty_instruction(test_type: TestType) {
 async fn test_profile_transaction_versioned_message(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    setup_profiling(&svm_locker);
 
     // Set up test accounts
     let payer = Keypair::new();
@@ -7097,6 +7107,7 @@ async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
 
     // Create the locker and runloop context
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    setup_profiling(&svm_locker);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
     let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
