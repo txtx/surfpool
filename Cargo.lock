@@ -11390,6 +11390,7 @@ dependencies = [
  "lazy_static",
  "log 0.4.29",
  "serde",
+ "serde_derive",
  "serde_json",
  "solana-account",
  "solana-account-decoder-client-types",
@@ -11426,6 +11427,7 @@ dependencies = [
  "anchor-lang-idl",
  "borsh",
  "bs58",
+ "convert_case 0.6.0",
  "lazy_static",
  "serde",
  "serde_json",
@@ -11435,6 +11437,7 @@ dependencies = [
  "solana-pubkey 3.0.0",
  "solana-signature",
  "solana-transaction",
+ "solana-transaction-status-client-types",
  "txtx-addon-kit",
 ]
 
@@ -11485,6 +11488,7 @@ dependencies = [
  "petgraph",
  "ripemd",
  "serde",
+ "serde_derive",
  "serde_json",
  "serde_with",
  "serde_yml",
