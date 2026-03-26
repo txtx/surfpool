@@ -947,7 +947,7 @@ pub trait Full {
     /// - `address`: The base-58 encoded address to query.
     /// - `config` (optional): Configuration object with the following fields:
     ///   - `before`: Start search before this signature.
-    ///   - `until`: Search until this signature (inclusive).
+    ///   - `until`: Search until this signature (exclusive).
     ///   - `limit`: Maximum number of results to return (default: 1,000; max: 1,000).
     ///   - `commitment`: The level of commitment desired (e.g., finalized).
     ///   - `minContextSlot`: The minimum slot that the query should be evaluated at.
@@ -3379,6 +3379,33 @@ mod tests {
         assert!(
             res.is_some(),
             "Block time should be calculated for valid slots"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_block_respects_confirmed_commitment_visibility() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer.latest_epoch_info.absolute_slot = 10;
+        });
+
+        let res = setup
+            .rpc
+            .get_block(
+                Some(setup.context),
+                10,
+                Some(RpcEncodingConfigWrapper::Current(Some(RpcBlockConfig {
+                    commitment: Some(CommitmentConfig::confirmed()),
+                    ..RpcBlockConfig::default()
+                }))),
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            res.is_none(),
+            "A confirmed getBlock request should not expose a slot newer than the confirmed slot"
         );
     }
 
