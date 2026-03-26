@@ -5051,6 +5051,378 @@ async fn test_closed_accounts(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
+async fn test_offline_account_including_owned_accounts(test_type: TestType) {
+    let owner = Pubkey::new_unique();
+    let owned = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    let (datasource_surfnet_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+
+    datasource_svm_locker
+        .with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &owner,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL,
+                        data: vec![1, 2, 3],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            svm_writer
+                .set_account(
+                    &owned,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL / 2,
+                        data: vec![4, 5, 6],
+                        owner,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
+        .expect("Failed to seed datasource accounts");
+
+    let (surfnet_url, surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_surfnet_url), another_test_type)
+            .expect("Failed to start surfnet");
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_offlineAccount",
+            },
+            serde_json::json!([owner.to_string(), { "includeOwnedAccounts": true }]),
+        )
+        .await
+        .expect("Failed to set account offline");
+
+    assert!(
+        surfnet_svm_locker.is_account_offline(&owner),
+        "Owner should be recorded as offline"
+    );
+    assert!(
+        surfnet_svm_locker
+            .get_offline_account_owners()
+            .contains(&owner),
+        "Owner should be recorded as a offline account owner"
+    );
+
+    let owner_result = rpc_client.get_account(&owner).await;
+    assert!(
+        owner_result.is_err(),
+        "Offline owner account should not be fetched from remote"
+    );
+    assert!(
+        surfnet_svm_locker.get_account_local(&owner).inner.is_none(),
+        "Offline owner account should remain absent locally"
+    );
+
+    let owned_result = rpc_client.get_account(&owned).await;
+    assert!(
+        owned_result.is_err(),
+        "Owned account should not be fetched from remote once marked offline"
+    );
+    assert!(
+        surfnet_svm_locker.get_account_local(&owned).inner.is_none(),
+        "Offline owned account should remain absent locally"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_offline_account_without_owned_accounts(test_type: TestType) {
+    let owner = Pubkey::new_unique();
+    let owned = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    let (datasource_surfnet_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+
+    datasource_svm_locker
+        .with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &owner,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL,
+                        data: vec![1, 2, 3],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            svm_writer
+                .set_account(
+                    &owned,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL / 2,
+                        data: vec![4, 5, 6],
+                        owner,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
+        .expect("Failed to seed datasource accounts");
+
+    let (surfnet_url, surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_surfnet_url), another_test_type)
+            .expect("Failed to start surfnet");
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Mark owner offline WITHOUT includeOwnedAccounts
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_offlineAccount",
+            },
+            serde_json::json!([owner.to_string()]),
+        )
+        .await
+        .expect("Failed to set account offline");
+
+    assert!(
+        surfnet_svm_locker.is_account_offline(&owner),
+        "Owner should be recorded as offline"
+    );
+    assert!(
+        !surfnet_svm_locker
+            .get_offline_account_owners()
+            .contains(&owner),
+        "Owner should NOT be in offline account owners (includeOwnedAccounts=false)"
+    );
+
+    // Offline account itself cannot be fetched from remote
+    let owner_result = rpc_client.get_account(&owner).await;
+    assert!(
+        owner_result.is_err(),
+        "Offline owner account should not be fetched from remote"
+    );
+
+    // Account owned by the offline owner CAN still be fetched
+    let owned_result = rpc_client.get_account(&owned).await;
+    assert!(
+        owned_result.is_ok(),
+        "Owned account should still be fetchable when owner blocking is not active"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reset_account_after_offline_restores(test_type: TestType) {
+    let account = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    let (datasource_surfnet_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+
+    datasource_svm_locker
+        .with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &account,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL,
+                        data: vec![1, 2, 3],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
+        .expect("Failed to seed datasource accounts");
+
+    let (surfnet_url, surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_surfnet_url), another_test_type)
+            .expect("Failed to start surfnet");
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Mark the account offline
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_offlineAccount",
+            },
+            serde_json::json!([account.to_string()]),
+        )
+        .await
+        .expect("Failed to set account offline");
+
+    assert!(
+        surfnet_svm_locker.is_account_offline(&account),
+        "Account should be offline"
+    );
+
+    // Verify it's blocked
+    let result = rpc_client.get_account(&account).await;
+    assert!(
+        result.is_err(),
+        "Offline account should not be fetched from remote"
+    );
+
+    // Reset the account — this should bring it back online
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_resetAccount",
+            },
+            serde_json::json!([account.to_string()]),
+        )
+        .await
+        .expect("Failed to reset account");
+
+    assert!(
+        !surfnet_svm_locker.is_account_offline(&account),
+        "Account should be online after reset"
+    );
+
+    // Verify it can be fetched from remote again
+    let result = rpc_client.get_account(&account).await;
+    assert!(
+        result.is_ok(),
+        "Account should be fetchable from remote after reset"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reset_network_clears_offline_accounts(test_type: TestType) {
+    let account = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    let (datasource_surfnet_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+
+    datasource_svm_locker
+        .with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &account,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL,
+                        data: vec![1, 2, 3],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
+        .expect("Failed to seed datasource accounts");
+
+    let (surfnet_url, surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_surfnet_url), another_test_type)
+            .expect("Failed to start surfnet");
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Mark the account offline
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_offlineAccount",
+            },
+            serde_json::json!([account.to_string()]),
+        )
+        .await
+        .expect("Failed to set account offline");
+
+    assert!(
+        surfnet_svm_locker.is_account_offline(&account),
+        "Account should be offline"
+    );
+
+    // Reset the network
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_resetNetwork",
+            },
+            serde_json::json!([]),
+        )
+        .await
+        .expect("Failed to reset network");
+
+    assert!(
+        !surfnet_svm_locker.is_account_offline(&account),
+        "Account should be online after network reset"
+    );
+
+    // Verify the account can be fetched from remote again
+    let result = rpc_client.get_account(&account).await;
+    assert!(
+        result.is_ok(),
+        "Account should be fetchable from remote after network reset"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_remote_get_multiple_accounts_only_program_accounts(test_type: TestType) {
     let program_pubkey = Pubkey::new_unique();
     let another_test_type = match &test_type {

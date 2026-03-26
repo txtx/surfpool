@@ -72,8 +72,8 @@ use crate::{
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
     surfnet::{FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH},
     types::{
-        GeyserAccountUpdate, RemoteRpcResult, SurfnetTransactionStatus, TimeTravelConfig,
-        TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
+        GeyserAccountUpdate, OfflineAccountConfig, RemoteRpcResult, SurfnetTransactionStatus,
+        TimeTravelConfig, TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
     },
 };
 
@@ -252,6 +252,24 @@ impl SurfnetSvmLocker {
 
 /// Functions for getting accounts from the underlying SurfnetSvm instance or remote client
 impl SurfnetSvmLocker {
+    /// Filters the downloaded account result to remove accounts owned by offline owners.
+    fn filter_downloaded_account_result(
+        requested_pubkey: &Pubkey,
+        result: GetAccountResult,
+        offline_owners: &[Pubkey],
+    ) -> GetAccountResult {
+        match result {
+            GetAccountResult::FoundAccount(_, account, _)
+            | GetAccountResult::FoundProgramAccount((_, account), _)
+            | GetAccountResult::FoundTokenAccount((_, account), _)
+                if offline_owners.contains(&account.owner) =>
+            {
+                GetAccountResult::None(*requested_pubkey)
+            }
+            other => other,
+        }
+    }
+
     /// Retrieves a local account from the SVM cache, returning a contextualized result.
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
@@ -278,7 +296,7 @@ impl SurfnetSvmLocker {
 
     /// Attempts local retrieval, then fetches from remote if missing, returning a contextualized result.
     ///
-    /// Does not fetch from remote if the account has been explicitly closed by the user.
+    /// Does not fetch from remote if the account has been explicitly blocked from remote downloads.
     pub async fn get_account_local_then_remote(
         &self,
         client: &SurfnetRemoteClient,
@@ -288,12 +306,18 @@ impl SurfnetSvmLocker {
         let result = self.get_account_local(pubkey);
 
         if result.inner.is_none() {
-            // Check if the account has been explicitly closed - if so, don't fetch from remote
-            let is_closed = self.get_closed_accounts().contains(pubkey);
+            let is_offline = self.is_account_offline(pubkey);
 
-            if !is_closed {
+            if !is_offline {
+                let offline_owners = self.get_offline_account_owners();
                 let remote_account = client.get_account(pubkey, commitment_config).await?;
-                Ok(result.with_new_value(remote_account))
+                Ok(
+                    result.with_new_value(Self::filter_downloaded_account_result(
+                        pubkey,
+                        remote_account,
+                        &offline_owners,
+                    )),
+                )
             } else {
                 Ok(result)
             }
@@ -356,7 +380,7 @@ impl SurfnetSvmLocker {
     ///
     /// Returns accounts in the same order as the input `pubkeys` array. Accounts found locally
     /// are returned as-is; accounts not found locally are fetched from the remote RPC client.
-    /// Accounts that have been explicitly closed are not fetched from remote.
+    /// Accounts that have been marked offline are not fetched from remote.
     pub async fn get_multiple_accounts_with_remote_fallback(
         &self,
         client: &SurfnetRemoteClient,
@@ -370,23 +394,17 @@ impl SurfnetSvmLocker {
             inner: local_results,
         } = self.get_multiple_accounts_local(pubkeys);
 
-        // Get the closed accounts set
-        let closed_accounts = self.get_closed_accounts();
-
-        // Collect missing pubkeys that are NOT closed (local_results is already in correct order from pubkeys)
-        let missing_accounts: Vec<Pubkey> = local_results
-            .iter()
-            .filter_map(|result| match result {
-                GetAccountResult::None(pubkey) => {
-                    if !closed_accounts.contains(pubkey) {
-                        Some(*pubkey)
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            })
-            .collect();
+        // Collect missing pubkeys that are not offline (local_results is already in correct order from pubkeys).
+        let mut missing_accounts = Vec::new();
+        for result in &local_results {
+            let GetAccountResult::None(pubkey) = result else {
+                continue;
+            };
+            if self.is_account_offline(pubkey) {
+                continue;
+            }
+            missing_accounts.push(*pubkey);
+        }
 
         if missing_accounts.is_empty() {
             // All accounts found locally, already in correct order
@@ -408,9 +426,21 @@ impl SurfnetSvmLocker {
             .await?;
 
         // Build map of pubkey -> remote result for O(1) lookup
+        let offline_owners = self.get_offline_account_owners();
         let remote_map: HashMap<Pubkey, GetAccountResult> = missing_accounts
-            .into_iter()
+            .iter()
+            .copied()
             .zip(remote_results.into_iter())
+            .map(|(requested_pubkey, result)| {
+                (
+                    requested_pubkey,
+                    Self::filter_downloaded_account_result(
+                        &requested_pubkey,
+                        result,
+                        &offline_owners,
+                    ),
+                )
+            })
             .collect();
 
         // Replace None entries with remote results while preserving order
@@ -420,17 +450,10 @@ impl SurfnetSvmLocker {
             .zip(local_results.into_iter())
             .map(|(pubkey, local_result)| {
                 match local_result {
-                    GetAccountResult::None(_) => {
-                        // Replace with remote result if available and not closed
-                        if closed_accounts.contains(pubkey) {
-                            GetAccountResult::None(*pubkey)
-                        } else {
-                            remote_map
-                                .get(pubkey)
-                                .cloned()
-                                .unwrap_or(GetAccountResult::None(*pubkey))
-                        }
-                    }
+                    GetAccountResult::None(_) => remote_map
+                        .get(pubkey)
+                        .cloned()
+                        .unwrap_or(GetAccountResult::None(*pubkey)),
                     found => {
                         debug!("Keeping local account: {}", pubkey);
                         found
@@ -1971,9 +1994,6 @@ impl SurfnetSvmLocker {
     /// allowing them to be fetched fresh from mainnet on the next access.
     /// It handles program accounts (including their program data accounts) and can optionally
     /// cascade the reset to all accounts owned by a program.
-    ///
-    /// This is different from `close_account()` which marks an account as permanently closed
-    /// and prevents it from being fetched from mainnet.
     pub fn reset_account(
         &self,
         pubkey: Pubkey,
@@ -1984,17 +2004,18 @@ impl SurfnetSvmLocker {
             "Account {} will be reset",
             pubkey
         )));
-        // Unclose the account so it can be fetched from mainnet again
-        self.unclose_account(pubkey)?;
+        // Set the account online so it can be fetched from mainnet again.
+        self.remove_offline_account(pubkey, include_owned_accounts)?;
+
         self.with_svm_writer(move |svm_writer| {
             svm_writer.reset_account(&pubkey, include_owned_accounts)
         })
     }
 
-    /// Resets SVM state and clears all closed accounts.
+    /// Resets SVM state and clears all offline account entries.
     ///
     /// This function coordinates the reset of the entire network state.
-    /// It also clears the closed_accounts set so all accounts can be fetched from mainnet again.
+    /// It also clears the offline account set so all accounts can be fetched from mainnet again.
     pub async fn reset_network(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
@@ -2019,8 +2040,38 @@ impl SurfnetSvmLocker {
 
         self.with_svm_writer(move |svm_writer| {
             let _ = svm_writer.reset_network(epoch_info);
-            svm_writer.closed_accounts.clear();
+            let _ = svm_writer.offline_accounts.clear();
         });
+        Ok(())
+    }
+
+    /// Marks an account as offline, preventing it from being downloaded from the remote RPC.
+    ///
+    /// When `include_owned_accounts` is enabled, this also marks accounts as offline that are already known locally.
+    /// Accounts discovered later through direct remote fetches are rejected lazily if they are
+    /// owned by an offline owner.
+    pub async fn insert_offline_account(
+        &self,
+        pubkey: Pubkey,
+        include_owned_accounts: bool,
+    ) -> SurfpoolResult<()> {
+        let simnet_events_tx = self.simnet_events_tx();
+        let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+            "Account {} will be marked offline (excluded from remote downloads)",
+            pubkey
+        )));
+
+        self.with_svm_writer(move |svm_writer| {
+            if let Err(e) = svm_writer.offline_accounts.store(
+                pubkey.to_string(),
+                OfflineAccountConfig {
+                    include_owned_accounts,
+                },
+            ) {
+                warn!("Failed to store offline account {}: {}", pubkey, e);
+            }
+        });
+
         Ok(())
     }
 
@@ -2053,20 +2104,72 @@ impl SurfnetSvmLocker {
         })
     }
 
-    /// Removes an account from the closed accounts set.
+    /// Removes an account from the offline account set.
     ///
     /// This allows the account to be fetched from mainnet again if requested.
     /// This is useful when resetting an account for a refresh/stream operation.
-    pub fn unclose_account(&self, pubkey: Pubkey) -> SurfpoolResult<()> {
+    pub fn remove_offline_account(
+        &self,
+        pubkey: Pubkey,
+        include_owned_accounts: bool,
+    ) -> SurfpoolResult<()> {
         self.with_svm_writer(move |svm_writer| {
-            svm_writer.closed_accounts.remove(&pubkey);
+            if let Err(e) = svm_writer.offline_accounts.take(&pubkey.to_string()) {
+                warn!("Failed to set account online {}: {}", pubkey, e);
+            }
+
+            if include_owned_accounts {
+                // Set online any locally-known accounts owned by this pubkey.
+                // Uses the accounts_by_owner index as a fast lookup.
+                let owned_pubkeys: Vec<Pubkey> = svm_writer
+                    .accounts_by_owner
+                    .get(&pubkey.to_string())
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|pk_str| pk_str.parse().ok())
+                    .collect();
+                for owned_pk in owned_pubkeys {
+                    if let Err(e) = svm_writer.offline_accounts.take(&owned_pk.to_string()) {
+                        warn!("Failed to set account online {}: {}", owned_pk, e);
+                    }
+                }
+            }
         });
         Ok(())
     }
 
-    /// Gets all currently closed accounts.
-    pub fn get_closed_accounts(&self) -> Vec<Pubkey> {
-        self.with_svm_reader(|svm_reader| svm_reader.closed_accounts.iter().copied().collect())
+    /// Returns true if the given pubkey is marked offline.
+    pub fn is_account_offline(&self, pubkey: &Pubkey) -> bool {
+        self.with_svm_reader(|svm_reader| {
+            svm_reader
+                .offline_accounts
+                .contains_key(&pubkey.to_string())
+                .unwrap_or(false)
+        })
+    }
+
+    /// Gets all owners whose accounts are marked offline.
+    pub fn get_offline_account_owners(&self) -> Vec<Pubkey> {
+        self.with_svm_reader(|svm_reader| {
+            svm_reader
+                .offline_accounts
+                .into_iter()
+                .unwrap_or_else(|e| {
+                    warn!("Failed to iterate offline_accounts: {}", e);
+                    Box::new(std::iter::empty())
+                })
+                .filter(|(_, config)| config.include_owned_accounts)
+                .filter_map(|(k, _)| match k.parse() {
+                    Ok(pk) => Some(pk),
+                    Err(e) => {
+                        warn!("Invalid pubkey in offline_accounts: {}: {}", k, e);
+                        None
+                    }
+                })
+                .collect()
+        })
     }
 
     /// Registers a scenario for execution

@@ -1068,6 +1068,11 @@ impl<'de> Deserialize<'de> for TokenAccount {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OfflineAccountConfig {
+    pub include_owned_accounts: bool,
+}
+
 #[derive(Debug, Clone)]
 pub enum MintAccount {
     SplToken2022(spl_token_2022_interface::state::Mint),

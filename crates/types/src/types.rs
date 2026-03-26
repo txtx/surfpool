@@ -779,6 +779,7 @@ impl CloudSurfnetRpcGating {
                 "surfnet_resetAccount".into(),
                 "surfnet_resetNetwork".into(),
                 "surfnet_exportSnapshot".into(),
+                "surfnet_offlineAccount".into(),
                 "surfnet_streamAccount".into(),
                 "surfnet_getStreamedAccounts".into(),
             ],
@@ -1171,6 +1172,7 @@ pub struct ExportSnapshotFilter {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResetAccountConfig {
     pub include_owned_accounts: Option<bool>,
 }
@@ -1184,11 +1186,26 @@ impl Default for ResetAccountConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamAccountConfig {
     pub include_owned_accounts: Option<bool>,
 }
 
 impl Default for StreamAccountConfig {
+    fn default() -> Self {
+        Self {
+            include_owned_accounts: Some(false),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfflineAccountConfig {
+    pub include_owned_accounts: Option<bool>,
+}
+
+impl Default for OfflineAccountConfig {
     fn default() -> Self {
         Self {
             include_owned_accounts: Some(false),
