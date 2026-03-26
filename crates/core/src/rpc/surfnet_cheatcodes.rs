@@ -4287,7 +4287,7 @@ mod tests {
     async fn test_write_program_small_no_minimum_program_artifacts() {
         // Regression test: writing a program smaller than minimum_program.so (3312 bytes)
         // should not leave leftover minimum_program.so bytes in the account.
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let program_data = vec![0xAB; 100];
@@ -4352,7 +4352,7 @@ mod tests {
     async fn test_write_program_exact_account_size() {
         // Regression test: verify account size is exactly correct for various data sizes,
         // including sizes around the minimum_program.so boundary (3312 bytes).
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
 
         let metadata_size =
             solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata(
@@ -4414,7 +4414,7 @@ mod tests {
     async fn test_write_program_execution_uses_written_bytes_not_noop() {
         // Regression test: after write_program, executing the program should use
         // the written bytes, not the noop placeholder from init_programdata_account.
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         // Create an "error program" ELF: identical to noop but returns r0=1 (error)
