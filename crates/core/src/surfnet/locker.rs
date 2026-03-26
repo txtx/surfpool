@@ -71,7 +71,7 @@ use crate::{
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
     surfnet::{FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH},
     types::{
-        BlockedAccountConfig, GeyserAccountUpdate, RemoteRpcResult, SurfnetTransactionStatus,
+        GeyserAccountUpdate, OfflineAccountConfig, RemoteRpcResult, SurfnetTransactionStatus,
         TimeTravelConfig, TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
     },
 };
@@ -244,17 +244,17 @@ impl SurfnetSvmLocker {
 
 /// Functions for getting accounts from the underlying SurfnetSvm instance or remote client
 impl SurfnetSvmLocker {
-    /// Filters the downloaded account result to remove accounts that are owned by blocked owners.
+    /// Filters the downloaded account result to remove accounts owned by offline owners.
     fn filter_downloaded_account_result(
         requested_pubkey: &Pubkey,
         result: GetAccountResult,
-        blocked_owners: &[Pubkey],
+        offline_owners: &[Pubkey],
     ) -> GetAccountResult {
         match result {
             GetAccountResult::FoundAccount(_, account, _)
             | GetAccountResult::FoundProgramAccount((_, account), _)
             | GetAccountResult::FoundTokenAccount((_, account), _)
-                if blocked_owners.contains(&account.owner) =>
+                if offline_owners.contains(&account.owner) =>
             {
                 GetAccountResult::None(*requested_pubkey)
             }
@@ -294,16 +294,16 @@ impl SurfnetSvmLocker {
         let result = self.get_account_local(pubkey);
 
         if result.inner.is_none() {
-            let is_blocked = self.is_account_blocked(pubkey);
+            let is_offline = self.is_account_offline(pubkey);
 
-            if !is_blocked {
-                let blocked_owners = self.get_blocked_account_owners();
+            if !is_offline {
+                let offline_owners = self.get_offline_account_owners();
                 let remote_account = client.get_account(pubkey, commitment_config).await?;
                 Ok(
                     result.with_new_value(Self::filter_downloaded_account_result(
                         pubkey,
                         remote_account,
-                        &blocked_owners,
+                        &offline_owners,
                     )),
                 )
             } else {
@@ -366,7 +366,7 @@ impl SurfnetSvmLocker {
     ///
     /// Returns accounts in the same order as the input `pubkeys` array. Accounts found locally
     /// are returned as-is; accounts not found locally are fetched from the remote RPC client.
-    /// Accounts that have been explicitly blocked from remote downloads are not fetched from remote.
+    /// Accounts that have been marked offline are not fetched from remote.
     pub async fn get_multiple_accounts_with_remote_fallback(
         &self,
         client: &SurfnetRemoteClient,
@@ -380,13 +380,13 @@ impl SurfnetSvmLocker {
             inner: local_results,
         } = self.get_multiple_accounts_local(pubkeys);
 
-        // Collect missing pubkeys that are not blocked (local_results is already in correct order from pubkeys).
+        // Collect missing pubkeys that are not offline (local_results is already in correct order from pubkeys).
         let mut missing_accounts = Vec::new();
         for result in &local_results {
             let GetAccountResult::None(pubkey) = result else {
                 continue;
             };
-            if self.is_account_blocked(pubkey) {
+            if self.is_account_offline(pubkey) {
                 continue;
             }
             missing_accounts.push(*pubkey);
@@ -412,7 +412,7 @@ impl SurfnetSvmLocker {
             .await?;
 
         // Build map of pubkey -> remote result for O(1) lookup
-        let blocked_owners = self.get_blocked_account_owners();
+        let offline_owners = self.get_offline_account_owners();
         let remote_map: HashMap<Pubkey, GetAccountResult> = missing_accounts
             .iter()
             .copied()
@@ -423,7 +423,7 @@ impl SurfnetSvmLocker {
                     Self::filter_downloaded_account_result(
                         &requested_pubkey,
                         result,
-                        &blocked_owners,
+                        &offline_owners,
                     ),
                 )
             })
@@ -1950,18 +1950,18 @@ impl SurfnetSvmLocker {
             "Account {} will be reset",
             pubkey
         )));
-        // Unblock the account so it can be fetched from mainnet again.
-        self.unblock_account_download(pubkey, include_owned_accounts)?;
+        // Set the account online so it can be fetched from mainnet again.
+        self.remove_offline_account(pubkey, include_owned_accounts)?;
 
         self.with_svm_writer(move |svm_writer| {
             svm_writer.reset_account(&pubkey, include_owned_accounts)
         })
     }
 
-    /// Resets SVM state and clears all blocked account download entries.
+    /// Resets SVM state and clears all offline account entries.
     ///
     /// This function coordinates the reset of the entire network state.
-    /// It also clears the blocked account set so all accounts can be fetched from mainnet again.
+    /// It also clears the offline account set so all accounts can be fetched from mainnet again.
     pub async fn reset_network(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
@@ -1986,35 +1986,35 @@ impl SurfnetSvmLocker {
 
         self.with_svm_writer(move |svm_writer| {
             let _ = svm_writer.reset_network(epoch_info);
-            let _ = svm_writer.blocked_accounts.clear();
+            let _ = svm_writer.offline_accounts.clear();
         });
         Ok(())
     }
 
-    /// Blocks an account from being downloaded from the remote RPC.
+    /// Marks an account as offline, preventing it from being downloaded from the remote RPC.
     ///
-    /// When `include_owned_accounts` is enabled, this also blocks accounts already known locally.
+    /// When `include_owned_accounts` is enabled, this also marks accounts as offline that are already known locally.
     /// Accounts discovered later through direct remote fetches are rejected lazily if they are
-    /// owned by a blocked owner.
-    pub async fn block_account_download(
+    /// owned by an offline owner.
+    pub async fn insert_offline_account(
         &self,
         pubkey: Pubkey,
         include_owned_accounts: bool,
     ) -> SurfpoolResult<()> {
         let simnet_events_tx = self.simnet_events_tx();
         let _ = simnet_events_tx.send(SimnetEvent::info(format!(
-            "Account {} will be blocked from remote downloads",
+            "Account {} will be marked offline (excluded from remote downloads)",
             pubkey
         )));
 
         self.with_svm_writer(move |svm_writer| {
-            if let Err(e) = svm_writer.blocked_accounts.store(
+            if let Err(e) = svm_writer.offline_accounts.store(
                 pubkey.to_string(),
-                BlockedAccountConfig {
+                OfflineAccountConfig {
                     include_owned_accounts,
                 },
             ) {
-                warn!("Failed to store blocked account {}: {}", pubkey, e);
+                warn!("Failed to store offline account {}: {}", pubkey, e);
             }
         });
 
@@ -2050,22 +2050,22 @@ impl SurfnetSvmLocker {
         })
     }
 
-    /// Removes an account from the blocked account download set.
+    /// Removes an account from the offline account set.
     ///
     /// This allows the account to be fetched from mainnet again if requested.
     /// This is useful when resetting an account for a refresh/stream operation.
-    pub fn unblock_account_download(
+    pub fn remove_offline_account(
         &self,
         pubkey: Pubkey,
         include_owned_accounts: bool,
     ) -> SurfpoolResult<()> {
         self.with_svm_writer(move |svm_writer| {
-            if let Err(e) = svm_writer.blocked_accounts.take(&pubkey.to_string()) {
-                warn!("Failed to unblock account {}: {}", pubkey, e);
+            if let Err(e) = svm_writer.offline_accounts.take(&pubkey.to_string()) {
+                warn!("Failed to set account online {}: {}", pubkey, e);
             }
 
             if include_owned_accounts {
-                // Unblock any locally-known accounts owned by this pubkey.
+                // Set online any locally-known accounts owned by this pubkey.
                 // Uses the accounts_by_owner index as a fast lookup.
                 let owned_pubkeys: Vec<Pubkey> = svm_writer
                     .accounts_by_owner
@@ -2077,8 +2077,8 @@ impl SurfnetSvmLocker {
                     .filter_map(|pk_str| pk_str.parse().ok())
                     .collect();
                 for owned_pk in owned_pubkeys {
-                    if let Err(e) = svm_writer.blocked_accounts.take(&owned_pk.to_string()) {
-                        warn!("Failed to unblock account {}: {}", owned_pk, e);
+                    if let Err(e) = svm_writer.offline_accounts.take(&owned_pk.to_string()) {
+                        warn!("Failed to set account online {}: {}", owned_pk, e);
                     }
                 }
             }
@@ -2086,31 +2086,31 @@ impl SurfnetSvmLocker {
         Ok(())
     }
 
-    /// Returns true if the given pubkey is blocked from remote download.
-    pub fn is_account_blocked(&self, pubkey: &Pubkey) -> bool {
+    /// Returns true if the given pubkey is marked offline.
+    pub fn is_account_offline(&self, pubkey: &Pubkey) -> bool {
         self.with_svm_reader(|svm_reader| {
             svm_reader
-                .blocked_accounts
+                .offline_accounts
                 .contains_key(&pubkey.to_string())
                 .unwrap_or(false)
         })
     }
 
-    /// Gets all owners whose accounts are blocked from remote download.
-    pub fn get_blocked_account_owners(&self) -> Vec<Pubkey> {
+    /// Gets all owners whose accounts are marked offline.
+    pub fn get_offline_account_owners(&self) -> Vec<Pubkey> {
         self.with_svm_reader(|svm_reader| {
             svm_reader
-                .blocked_accounts
+                .offline_accounts
                 .into_iter()
                 .unwrap_or_else(|e| {
-                    warn!("Failed to iterate blocked_accounts: {}", e);
+                    warn!("Failed to iterate offline_accounts: {}", e);
                     Box::new(std::iter::empty())
                 })
                 .filter(|(_, config)| config.include_owned_accounts)
                 .filter_map(|(k, _)| match k.parse() {
                     Ok(pk) => Some(pk),
                     Err(e) => {
-                        warn!("Invalid pubkey in blocked_accounts: {}: {}", k, e);
+                        warn!("Invalid pubkey in offline_accounts: {}: {}", k, e);
                         None
                     }
                 })

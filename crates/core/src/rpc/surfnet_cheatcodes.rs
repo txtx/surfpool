@@ -14,10 +14,9 @@ use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    AccountSnapshot, BlockAccountDownloadConfig, ClockCommand, ExportSnapshotConfig,
-    GetStreamedAccountsResponse, GetSurfnetInfoResponse, Idl, ResetAccountConfig,
-    RpcProfileResultConfig, Scenario, SimnetCommand, SimnetEvent, StreamAccountConfig,
-    UiKeyedProfileResult,
+    AccountSnapshot, ClockCommand, ExportSnapshotConfig, GetStreamedAccountsResponse,
+    GetSurfnetInfoResponse, Idl, OfflineAccountConfig, ResetAccountConfig, RpcProfileResultConfig,
+    Scenario, SimnetCommand, SimnetEvent, StreamAccountConfig, UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -785,8 +784,8 @@ pub trait SurfnetCheatcodes {
     ///
     /// ## Parameters
     /// - `pubkey_str`: The base-58 encoded public key of the account/program to block.
-    /// - `config`: A `BlockAccountDownloadConfig` specifying whether to also block accounts
-    ///   owned by this pubkey. If omitted, only the account itself is blocked.
+    /// - `config`: A `OfflineAccountConfig` specifying whether to also mark accounts offline
+    ///   owned by this pubkey. If omitted, only the account itself is marked offline.
     ///
     /// ## Returns
     /// An `RpcResponse<()>` indicating whether the download block registration was successful.
@@ -796,7 +795,7 @@ pub trait SurfnetCheatcodes {
     /// {
     ///   "jsonrpc": "2.0",
     ///   "id": 1,
-    ///   "method": "surfnet_blockAccountDownload",
+    ///   "method": "surfnet_offlineAccount",
     ///   "params": [ "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa", { "includeOwnedAccounts": true } ]
     /// }
     /// ```
@@ -815,12 +814,12 @@ pub trait SurfnetCheatcodes {
     ///   "id": 1
     /// }
     /// ```
-    #[rpc(meta, name = "surfnet_blockAccountDownload")]
-    fn block_account_download(
+    #[rpc(meta, name = "surfnet_offlineAccount")]
+    fn offline_account(
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        config: Option<BlockAccountDownloadConfig>,
+        config: Option<OfflineAccountConfig>,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
 
     /// A cheat code to export a snapshot of all accounts in the Surfnet SVM.
@@ -1751,11 +1750,11 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         })
     }
 
-    fn block_account_download(
+    fn offline_account(
         &self,
         meta: Self::Metadata,
         pubkey_str: String,
-        config: Option<BlockAccountDownloadConfig>,
+        config: Option<OfflineAccountConfig>,
     ) -> BoxFuture<Result<RpcResponse<()>>> {
         let SurfnetRpcContext { svm_locker, .. } =
             match meta.get_rpc_context(CommitmentConfig::confirmed()) {
@@ -1771,7 +1770,7 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
 
         Box::pin(async move {
             svm_locker
-                .block_account_download(pubkey, include_owned_accounts)
+                .insert_offline_account(pubkey, include_owned_accounts)
                 .await?;
             Ok(RpcResponse {
                 context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),

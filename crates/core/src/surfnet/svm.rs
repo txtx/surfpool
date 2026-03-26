@@ -102,7 +102,7 @@ use crate::{
         LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
     },
     types::{
-        BlockedAccountConfig, GeyserAccountUpdate, MintAccount, SerializableAccountAdditionalData,
+        OfflineAccountConfig, GeyserAccountUpdate, MintAccount, SerializableAccountAdditionalData,
         SurfnetTransactionStatus, SyntheticBlockhash, TokenAccount, TransactionWithStatusMeta,
     },
 };
@@ -296,10 +296,10 @@ pub struct SurfnetSvm {
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
     pub scheduled_overrides: Box<dyn Storage<u64, Vec<OverrideInstance>>>,
     /// Tracks accounts that should not be downloaded from the remote RPC.
-    /// This includes accounts explicitly closed locally and accounts blocked via cheatcodes.
+    /// This includes accounts explicitly closed locally and accounts marked offline via cheatcodes.
     /// The key is the account pubkey as a string. If `include_owned_accounts` is true,
-    /// accounts owned by this pubkey are also blocked from remote download.
-    pub blocked_accounts: Box<dyn Storage<String, BlockedAccountConfig>>,
+    /// accounts owned by this pubkey are also marked offline and excluded from remote download.
+    pub offline_accounts: Box<dyn Storage<String, OfflineAccountConfig>>,
     /// The slot at which this surfnet instance started (may be non-zero when connected to remote).
     /// Used as the lower bound for block reconstruction.
     pub genesis_slot: Slot,
@@ -421,7 +421,7 @@ impl SurfnetSvm {
             runbook_executions: self.runbook_executions.clone(),
             account_update_slots: self.account_update_slots.clone(),
             recent_blockhashes: self.recent_blockhashes.clone(),
-            blocked_accounts: OverlayStorage::wrap(self.blocked_accounts.clone_box()),
+            offline_accounts: OverlayStorage::wrap(self.offline_accounts.clone_box()),
             genesis_slot: self.genesis_slot,
             genesis_updated_at: self.genesis_updated_at,
             slot_checkpoint: OverlayStorage::wrap(self.slot_checkpoint.clone_box()),
@@ -510,8 +510,8 @@ impl SurfnetSvm {
             new_kv_store(&database_url, "streamed_accounts", surfnet_id)?;
         let scheduled_overrides_db: Box<dyn Storage<u64, Vec<OverrideInstance>>> =
             new_kv_store(&database_url, "scheduled_overrides", surfnet_id)?;
-        let blocked_accounts_db: Box<dyn Storage<String, BlockedAccountConfig>> =
-            new_kv_store(&database_url, "blocked_accounts", surfnet_id)?;
+        let offline_accounts_db: Box<dyn Storage<String, OfflineAccountConfig>> =
+            new_kv_store(&database_url, "offline_accounts", surfnet_id)?;
         let registered_idls_db: Box<dyn Storage<String, Vec<VersionedIdl>>> =
             new_kv_store(&database_url, "registered_idls", surfnet_id)?;
         let profile_tag_map_db: Box<dyn Storage<String, Vec<UuidOrSignature>>> =
@@ -623,7 +623,7 @@ impl SurfnetSvm {
             streamed_accounts: streamed_accounts_db,
             recent_blockhashes: VecDeque::new(),
             scheduled_overrides: scheduled_overrides_db,
-            blocked_accounts: blocked_accounts_db,
+            offline_accounts: offline_accounts_db,
             genesis_slot: 0, // Will be updated when connecting to remote network
             genesis_updated_at: Utc::now().timestamp_millis() as u64,
             slot_checkpoint: slot_checkpoint_db,
@@ -1318,9 +1318,9 @@ impl SurfnetSvm {
         }
 
         if is_deleted_account {
-            self.blocked_accounts.store(
+            self.offline_accounts.store(
                 pubkey.to_string(),
-                BlockedAccountConfig {
+                OfflineAccountConfig {
                     include_owned_accounts: false,
                 },
             )?;
@@ -4564,7 +4564,7 @@ mod tests {
 
         assert!(svm.get_account(&account_pubkey).unwrap().is_some());
         assert!(
-            !svm.blocked_accounts
+            !svm.offline_accounts
                 .contains_key(&account_pubkey.to_string())
                 .unwrap()
         );
@@ -4575,7 +4575,7 @@ mod tests {
             .unwrap();
 
         assert!(
-            svm.blocked_accounts
+            svm.offline_accounts
                 .contains_key(&account_pubkey.to_string())
                 .unwrap()
         );
@@ -4627,7 +4627,7 @@ mod tests {
         );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 1);
         assert!(
-            !svm.blocked_accounts
+            !svm.offline_accounts
                 .contains_key(&token_account_pubkey.to_string())
                 .unwrap()
         );
@@ -4637,7 +4637,7 @@ mod tests {
             .unwrap();
 
         assert!(
-            svm.blocked_accounts
+            svm.offline_accounts
                 .contains_key(&token_account_pubkey.to_string())
                 .unwrap()
         );

@@ -4748,7 +4748,7 @@ async fn test_closed_accounts(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_block_account_download_including_owned_accounts(test_type: TestType) {
+async fn test_offline_account_including_owned_accounts(test_type: TestType) {
     let owner = Pubkey::new_unique();
     let owned = Pubkey::new_unique();
     let another_test_type = match &test_type {
@@ -4803,42 +4803,42 @@ async fn test_block_account_download_including_owned_accounts(test_type: TestTyp
     let _: serde_json::Value = rpc_client
         .send(
             solana_client::rpc_request::RpcRequest::Custom {
-                method: "surfnet_blockAccountDownload",
+                method: "surfnet_offlineAccount",
             },
             serde_json::json!([owner.to_string(), { "includeOwnedAccounts": true }]),
         )
         .await
-        .expect("Failed to block account download");
+        .expect("Failed to set account offline");
 
     assert!(
-        surfnet_svm_locker.is_account_blocked(&owner),
-        "Owner should be recorded as blocked"
+        surfnet_svm_locker.is_account_offline(&owner),
+        "Owner should be recorded as offline"
     );
     assert!(
         surfnet_svm_locker
-            .get_blocked_account_owners()
+            .get_offline_account_owners()
             .contains(&owner),
-        "Owner should be recorded as a blocked account owner"
+        "Owner should be recorded as a offline account owner"
     );
 
     let owner_result = rpc_client.get_account(&owner).await;
     assert!(
         owner_result.is_err(),
-        "Blocked owner account should not be fetched from remote"
+        "Offline owner account should not be fetched from remote"
     );
     assert!(
         surfnet_svm_locker.get_account_local(&owner).inner.is_none(),
-        "Blocked owner account should remain absent locally"
+        "Offline owner account should remain absent locally"
     );
 
     let owned_result = rpc_client.get_account(&owned).await;
     assert!(
         owned_result.is_err(),
-        "Owned account should not be fetched from remote once blocked"
+        "Owned account should not be fetched from remote once marked offline"
     );
     assert!(
         surfnet_svm_locker.get_account_local(&owned).inner.is_none(),
-        "Blocked owned account should remain absent locally"
+        "Offline owned account should remain absent locally"
     );
 }
 
@@ -4848,7 +4848,7 @@ async fn test_block_account_download_including_owned_accounts(test_type: TestTyp
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_block_account_download_without_owned_accounts(test_type: TestType) {
+async fn test_offline_account_without_owned_accounts(test_type: TestType) {
     let owner = Pubkey::new_unique();
     let owned = Pubkey::new_unique();
     let another_test_type = match &test_type {
@@ -4900,36 +4900,36 @@ async fn test_block_account_download_without_owned_accounts(test_type: TestType)
             .expect("Failed to start surfnet");
     let rpc_client = RpcClient::new(surfnet_url);
 
-    // Block owner WITHOUT includeOwnedAccounts
+    // Mark owner offline WITHOUT includeOwnedAccounts
     let _: serde_json::Value = rpc_client
         .send(
             solana_client::rpc_request::RpcRequest::Custom {
-                method: "surfnet_blockAccountDownload",
+                method: "surfnet_offlineAccount",
             },
             serde_json::json!([owner.to_string()]),
         )
         .await
-        .expect("Failed to block account download");
+        .expect("Failed to set account offline");
 
     assert!(
-        surfnet_svm_locker.is_account_blocked(&owner),
-        "Owner should be recorded as blocked"
+        surfnet_svm_locker.is_account_offline(&owner),
+        "Owner should be recorded as offline"
     );
     assert!(
         !surfnet_svm_locker
-            .get_blocked_account_owners()
+            .get_offline_account_owners()
             .contains(&owner),
-        "Owner should NOT be in blocked account owners (includeOwnedAccounts=false)"
+        "Owner should NOT be in offline account owners (includeOwnedAccounts=false)"
     );
 
-    // Blocked account itself cannot be fetched from remote
+    // Offline account itself cannot be fetched from remote
     let owner_result = rpc_client.get_account(&owner).await;
     assert!(
         owner_result.is_err(),
-        "Blocked owner account should not be fetched from remote"
+        "Offline owner account should not be fetched from remote"
     );
 
-    // Account owned by the blocked owner CAN still be fetched
+    // Account owned by the offline owner CAN still be fetched
     let owned_result = rpc_client.get_account(&owned).await;
     assert!(
         owned_result.is_ok(),
@@ -4943,7 +4943,7 @@ async fn test_block_account_download_without_owned_accounts(test_type: TestType)
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_reset_account_after_block_unblocks(test_type: TestType) {
+async fn test_reset_account_after_offline_restores(test_type: TestType) {
     let account = Pubkey::new_unique();
     let another_test_type = match &test_type {
         TestType::OnDiskSqlite(_) => TestType::sqlite(),
@@ -4982,30 +4982,30 @@ async fn test_reset_account_after_block_unblocks(test_type: TestType) {
             .expect("Failed to start surfnet");
     let rpc_client = RpcClient::new(surfnet_url);
 
-    // Block the account
+    // Mark the account offline
     let _: serde_json::Value = rpc_client
         .send(
             solana_client::rpc_request::RpcRequest::Custom {
-                method: "surfnet_blockAccountDownload",
+                method: "surfnet_offlineAccount",
             },
             serde_json::json!([account.to_string()]),
         )
         .await
-        .expect("Failed to block account download");
+        .expect("Failed to set account offline");
 
     assert!(
-        surfnet_svm_locker.is_account_blocked(&account),
-        "Account should be blocked"
+        surfnet_svm_locker.is_account_offline(&account),
+        "Account should be offline"
     );
 
     // Verify it's blocked
     let result = rpc_client.get_account(&account).await;
     assert!(
         result.is_err(),
-        "Blocked account should not be fetched from remote"
+        "Offline account should not be fetched from remote"
     );
 
-    // Reset the account — this should unblock it
+    // Reset the account — this should bring it back online
     let _: serde_json::Value = rpc_client
         .send(
             solana_client::rpc_request::RpcRequest::Custom {
@@ -5017,8 +5017,8 @@ async fn test_reset_account_after_block_unblocks(test_type: TestType) {
         .expect("Failed to reset account");
 
     assert!(
-        !surfnet_svm_locker.is_account_blocked(&account),
-        "Account should be unblocked after reset"
+        !surfnet_svm_locker.is_account_offline(&account),
+        "Account should be online after reset"
     );
 
     // Verify it can be fetched from remote again
@@ -5035,7 +5035,7 @@ async fn test_reset_account_after_block_unblocks(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
 #[tokio::test(flavor = "multi_thread")]
-async fn test_reset_network_clears_blocked_accounts(test_type: TestType) {
+async fn test_reset_network_clears_offline_accounts(test_type: TestType) {
     let account = Pubkey::new_unique();
     let another_test_type = match &test_type {
         TestType::OnDiskSqlite(_) => TestType::sqlite(),
@@ -5074,20 +5074,20 @@ async fn test_reset_network_clears_blocked_accounts(test_type: TestType) {
             .expect("Failed to start surfnet");
     let rpc_client = RpcClient::new(surfnet_url);
 
-    // Block the account
+    // Mark the account offline
     let _: serde_json::Value = rpc_client
         .send(
             solana_client::rpc_request::RpcRequest::Custom {
-                method: "surfnet_blockAccountDownload",
+                method: "surfnet_offlineAccount",
             },
             serde_json::json!([account.to_string()]),
         )
         .await
-        .expect("Failed to block account download");
+        .expect("Failed to set account offline");
 
     assert!(
-        surfnet_svm_locker.is_account_blocked(&account),
-        "Account should be blocked"
+        surfnet_svm_locker.is_account_offline(&account),
+        "Account should be offline"
     );
 
     // Reset the network
@@ -5102,8 +5102,8 @@ async fn test_reset_network_clears_blocked_accounts(test_type: TestType) {
         .expect("Failed to reset network");
 
     assert!(
-        !surfnet_svm_locker.is_account_blocked(&account),
-        "Account should be unblocked after network reset"
+        !surfnet_svm_locker.is_account_offline(&account),
+        "Account should be online after network reset"
     );
 
     // Verify the account can be fetched from remote again

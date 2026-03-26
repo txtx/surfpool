@@ -1069,7 +1069,7 @@ impl<'de> Deserialize<'de> for TokenAccount {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockedAccountConfig {
+pub struct OfflineAccountConfig {
     pub include_owned_accounts: bool,
 }
 
