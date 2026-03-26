@@ -85,7 +85,7 @@ use crate::{
         LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
     },
     types::{
-        GeyserAccountUpdate, MintAccount, SerializableAccountAdditionalData,
+        GeyserAccountUpdate, MintAccount, OfflineAccountConfig, SerializableAccountAdditionalData,
         SurfnetTransactionStatus, SyntheticBlockhash, TokenAccount, TransactionWithStatusMeta,
     },
 };
@@ -278,9 +278,11 @@ pub struct SurfnetSvm {
     pub streamed_accounts: Box<dyn Storage<String, bool>>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
     pub scheduled_overrides: Box<dyn Storage<u64, Vec<OverrideInstance>>>,
-    /// Tracks accounts that have been explicitly closed by the user.
-    /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
-    pub closed_accounts: HashSet<Pubkey>,
+    /// Tracks accounts that should not be downloaded from the remote RPC.
+    /// This includes accounts explicitly closed locally and accounts marked offline via cheatcodes.
+    /// The key is the account pubkey as a string. If `include_owned_accounts` is true,
+    /// accounts owned by this pubkey are also marked offline and excluded from remote download.
+    pub offline_accounts: Box<dyn Storage<String, OfflineAccountConfig>>,
     /// The slot at which this surfnet instance started (may be non-zero when connected to remote).
     /// Used as the lower bound for block reconstruction.
     pub genesis_slot: Slot,
@@ -402,7 +404,7 @@ impl SurfnetSvm {
             runbook_executions: self.runbook_executions.clone(),
             account_update_slots: self.account_update_slots.clone(),
             recent_blockhashes: self.recent_blockhashes.clone(),
-            closed_accounts: self.closed_accounts.clone(),
+            offline_accounts: OverlayStorage::wrap(self.offline_accounts.clone_box()),
             genesis_slot: self.genesis_slot,
             genesis_updated_at: self.genesis_updated_at,
             slot_checkpoint: OverlayStorage::wrap(self.slot_checkpoint.clone_box()),
@@ -491,6 +493,8 @@ impl SurfnetSvm {
             new_kv_store(&database_url, "streamed_accounts", surfnet_id)?;
         let scheduled_overrides_db: Box<dyn Storage<u64, Vec<OverrideInstance>>> =
             new_kv_store(&database_url, "scheduled_overrides", surfnet_id)?;
+        let offline_accounts_db: Box<dyn Storage<String, OfflineAccountConfig>> =
+            new_kv_store(&database_url, "offline_accounts", surfnet_id)?;
         let registered_idls_db: Box<dyn Storage<String, Vec<VersionedIdl>>> =
             new_kv_store(&database_url, "registered_idls", surfnet_id)?;
         let profile_tag_map_db: Box<dyn Storage<String, Vec<UuidOrSignature>>> =
@@ -602,7 +606,7 @@ impl SurfnetSvm {
             streamed_accounts: streamed_accounts_db,
             recent_blockhashes: VecDeque::new(),
             scheduled_overrides: scheduled_overrides_db,
-            closed_accounts: HashSet::new(),
+            offline_accounts: offline_accounts_db,
             genesis_slot: 0, // Will be updated when connecting to remote network
             genesis_updated_at: Utc::now().timestamp_millis() as u64,
             slot_checkpoint: slot_checkpoint_db,
@@ -1212,7 +1216,12 @@ impl SurfnetSvm {
         }
 
         if is_deleted_account {
-            self.closed_accounts.insert(*pubkey);
+            self.offline_accounts.store(
+                pubkey.to_string(),
+                OfflineAccountConfig {
+                    include_owned_accounts: false,
+                },
+            )?;
             if let Some(old_account) = self.get_account(pubkey)? {
                 self.remove_from_indexes(pubkey, &old_account)?;
             }
@@ -1779,7 +1788,7 @@ impl SurfnetSvm {
             };
             let mut data = bincode::serialize(&programdata_state).unwrap();
 
-            data.extend_from_slice(&include_bytes!("../tests/assets/minimum_program.so").to_vec());
+            data.extend_from_slice(crate::surfnet::noop_program::NOOP_PROGRAM_ELF);
             let lamports = self.inner.minimum_balance_for_rent_exemption(data.len());
             Some((
                 programdata_address,
@@ -3830,7 +3839,7 @@ mod tests {
             )
             .unwrap();
 
-            let mut bin = include_bytes!("../tests/assets/minimum_program.so").to_vec();
+            let mut bin = crate::surfnet::noop_program::NOOP_PROGRAM_ELF.to_vec();
             data.append(&mut bin); // push our binary after the state data
             let lamports = svm.inner.minimum_balance_for_rent_exemption(data.len());
             let default_program_data_account = Account {
@@ -4414,14 +4423,22 @@ mod tests {
         svm.set_account(&account_pubkey, account.clone()).unwrap();
 
         assert!(svm.get_account(&account_pubkey).unwrap().is_some());
-        assert!(!svm.closed_accounts.contains(&account_pubkey));
+        assert!(
+            !svm.offline_accounts
+                .contains_key(&account_pubkey.to_string())
+                .unwrap()
+        );
         assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 1);
 
         let empty_account = Account::default();
         svm.update_account_registries(&account_pubkey, &empty_account)
             .unwrap();
 
-        assert!(svm.closed_accounts.contains(&account_pubkey));
+        assert!(
+            svm.offline_accounts
+                .contains_key(&account_pubkey.to_string())
+                .unwrap()
+        );
 
         assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 0);
 
@@ -4469,13 +4486,21 @@ mod tests {
             1
         );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 1);
-        assert!(!svm.closed_accounts.contains(&token_account_pubkey));
+        assert!(
+            !svm.offline_accounts
+                .contains_key(&token_account_pubkey.to_string())
+                .unwrap()
+        );
 
         let empty_account = Account::default();
         svm.update_account_registries(&token_account_pubkey, &empty_account)
             .unwrap();
 
-        assert!(svm.closed_accounts.contains(&token_account_pubkey));
+        assert!(
+            svm.offline_accounts
+                .contains_key(&token_account_pubkey.to_string())
+                .unwrap()
+        );
 
         assert_eq!(
             svm.get_token_accounts_by_owner(&token_owner).unwrap().len(),

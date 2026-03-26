@@ -1,4 +1,7 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, RwLock},
+};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use jsonrpc_core::{BoxFuture, Error, Result, futures::future};
@@ -14,9 +17,10 @@ use solana_system_interface::program as system_program;
 use solana_transaction::versioned::VersionedTransaction;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use surfpool_types::{
-    AccountSnapshot, ClockCommand, ExportSnapshotConfig, GetStreamedAccountsResponse,
-    GetSurfnetInfoResponse, Idl, ResetAccountConfig, RpcProfileResultConfig, Scenario,
-    SimnetCommand, SimnetEvent, StreamAccountConfig, UiKeyedProfileResult,
+    AccountSnapshot, CheatcodeControlConfig, CheatcodeFilter, ClockCommand, ExportSnapshotConfig,
+    GetStreamedAccountsResponse, GetSurfnetInfoResponse, Idl, OfflineAccountConfig,
+    ResetAccountConfig, RpcProfileResultConfig, Scenario, SimnetCommand, SimnetEvent,
+    StreamAccountConfig, UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -178,6 +182,92 @@ pub trait SurfnetCheatcodes {
         pubkey: String,
         update: AccountUpdate,
     ) -> BoxFuture<Result<RpcResponse<()>>>;
+
+    /// Enables one or more Surfpool cheatcode RPC methods for the current session.
+    ///
+    /// This method allows developers to re-enable cheatcode methods that were previously disabled.
+    /// Each cheatcode name must match a valid `surfnet_*` RPC method (e.g. `surfnet_setAccount`, `surfnet_timeTravel`).
+    ///
+    /// ## Parameters
+    /// - `cheatcodes`: A list of cheatcode method names to enable, as strings (e.g. `["surfnet_setAccount", "surfnet_timeTravel"]`).
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the enable operation was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_enableCheatcode",
+    ///   "params": [["surfnet_setAccount", "surfnet_timeTravel"]]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// Invalid cheatcode names return an error. Use `surfnet_disableCheatcode` to disable methods and `surfnet_lockout` to allow disabling `surfnet_enableCheatcode` and `surfnet_disableCheatcode` themselves.
+    ///
+    /// # See Also
+    /// - `surfnet_disableCheatcode`, `surfnet_disableAllCheatcodes`, `surfnet_lockout`
+    #[rpc(meta, name = "surfnet_enableCheatcode")]
+    fn enable_cheatcode(
+        &self,
+        meta: Self::Metadata,
+        cheatcodes_filter: CheatcodeFilter,
+    ) -> Result<RpcResponse<()>>;
+
+    /// Disables one or more Surfpool cheatcode RPC methods for the current session.
+    ///
+    /// This method allows developers to turn off specific cheatcode methods so they are no longer callable.
+    /// Each cheatcode name must match a valid `surfnet_*` RPC method. When lockout is not enabled,
+    /// `surfnet_enableCheatcode` and `surfnet_disableCheatcode` cannot be disabled.
+    ///
+    /// ## Parameters
+    /// - `cheatcodes`: A list of cheatcode method names to disable, as strings (e.g. `["surfnet_setAccount"]`).
+    ///
+    /// ## Returns
+    /// A `RpcResponse<()>` indicating whether the disable operation was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_disableCheatcode",
+    ///   "params": [["surfnet_setAccount", "surfnet_timeTravel"]]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {},
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// # Notes
+    /// Call `surfnet_lockout` first if you need to disable `surfnet_enableCheatcode` or `surfnet_disableCheatcode`.
+    ///
+    /// # See Also
+    /// - `surfnet_enableCheatcode`, `surfnet_disableAllCheatcodes`, `surfnet_lockout`
+    #[rpc(meta, name = "surfnet_disableCheatcode")]
+    fn disable_cheatcode(
+        &self,
+        meta: Self::Metadata,
+        cheatcodes_filter: CheatcodeFilter,
+        lockout: Option<CheatcodeControlConfig>,
+    ) -> Result<RpcResponse<()>>;
 
     /// A "cheat code" method for developers to set or update a token account in Surfpool.
     ///
@@ -780,6 +870,48 @@ pub trait SurfnetCheatcodes {
     #[rpc(meta, name = "surfnet_resetNetwork")]
     fn reset_network(&self, meta: Self::Metadata) -> BoxFuture<Result<RpcResponse<()>>>;
 
+    /// A cheat code to prevent an account from being downloaded from the remote RPC.
+    ///
+    /// ## Parameters
+    /// - `pubkey_str`: The base-58 encoded public key of the account/program to block.
+    /// - `config`: A `OfflineAccountConfig` specifying whether to also mark accounts offline
+    ///   owned by this pubkey. If omitted, only the account itself is marked offline.
+    ///
+    /// ## Returns
+    /// An `RpcResponse<()>` indicating whether the download block registration was successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_offlineAccount",
+    ///   "params": [ "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa", { "includeOwnedAccounts": true } ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 123456789,
+    ///       "apiVersion": "2.3.8"
+    ///     },
+    ///     "value": null
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_offlineAccount")]
+    fn offline_account(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        config: Option<OfflineAccountConfig>,
+    ) -> BoxFuture<Result<RpcResponse<()>>>;
+
     /// A cheat code to export a snapshot of all accounts in the Surfnet SVM.
     ///
     /// This method retrieves the current state of all accounts stored in the Surfnet Virtual Machine (SVM)
@@ -1131,7 +1263,23 @@ pub trait SurfnetCheatcodes {
 }
 
 #[derive(Clone)]
-pub struct SurfnetCheatcodesRpc;
+pub struct SurfnetCheatcodesRpc {
+    pub registered_methods: Arc<RwLock<Vec<String>>>,
+}
+impl SurfnetCheatcodesRpc {
+    pub fn empty() -> Self {
+        Self {
+            registered_methods: Arc::new(RwLock::new(vec![])),
+        }
+    }
+    pub fn is_available_cheatcode(&self, cheatcode: &String) -> bool {
+        let Ok(methods) = self.registered_methods.read() else {
+            return false;
+        };
+        methods.contains(cheatcode)
+    }
+}
+
 impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
     type Metadata = Option<RunloopContext>;
 
@@ -1198,6 +1346,127 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
                 context: RpcResponseContext::new(latest_absolute_slot),
                 value: (),
             })
+        })
+    }
+
+    fn disable_cheatcode(
+        &self,
+        meta: Self::Metadata,
+        cheatcodes_filter: CheatcodeFilter,
+        control_config: Option<CheatcodeControlConfig>,
+    ) -> Result<RpcResponse<()>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return Err(e.into()),
+        };
+
+        let CheatcodeControlConfig { lockout } = control_config.unwrap_or_default();
+        let lockout = lockout.unwrap_or_default();
+
+        if let Some(runloop_ctx) = meta {
+            let Ok(mut cheatcode_ctx) = runloop_ctx.cheatcode_config.lock() else {
+                return Err(jsonrpc_core::Error::internal_error());
+            };
+
+            if lockout {
+                cheatcode_ctx.lockout();
+            }
+
+            match cheatcodes_filter {
+                CheatcodeFilter::All(all) => {
+                    if all.ne("all") {
+                        return Err(SurfpoolError::disable_cheatcode(
+                            "Invalid option provided for disabling all cheatcodes. Try using 'all' or providing an array of specific cheatcodes".to_string(),
+                        )
+                        .into());
+                    }
+
+                    let Ok(available_cheatcodes) = self.registered_methods.read() else {
+                        return Err(jsonrpc_core::Error::internal_error());
+                    };
+                    cheatcode_ctx.disable_all(lockout, (*available_cheatcodes).clone());
+                }
+                CheatcodeFilter::List(cheatcodes) => {
+                    // Validate all cheatcodes before disabling any (atomic processing)
+                    for cheatcode in &cheatcodes {
+                        if !lockout
+                            && (cheatcode.eq("surfnet_enableCheatcode")
+                                || cheatcode.eq("surfnet_disableCheatcode"))
+                        {
+                            return Err(SurfpoolError::disable_cheatcode(
+                                "Cannot disable surfnet_enableCheatcode or surfnet_disableCheatcode rpc method when lockout is not enabled".to_string(),
+                            )
+                            .into());
+                        }
+                        if !self.is_available_cheatcode(cheatcode) {
+                            return Err(SurfpoolError::disable_cheatcode(
+                                "Invalid cheatcode rpc method".to_string(),
+                            )
+                            .into());
+                        }
+                    }
+                    // Apply all after validation passes
+                    for cheatcode in cheatcodes {
+                        if let Err(e) = cheatcode_ctx.disable_cheatcode(&cheatcode) {
+                            return Err(SurfpoolError::disable_cheatcode(e).into());
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(RpcResponse {
+            value: (),
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+        })
+    }
+
+    fn enable_cheatcode(
+        &self,
+        meta: Self::Metadata,
+        cheatcodes_filter: CheatcodeFilter,
+    ) -> Result<RpcResponse<()>> {
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => return Err(e.into()),
+        };
+        if let Some(runloop_ctx) = meta {
+            let Ok(mut cheatcode_ctx) = runloop_ctx.cheatcode_config.lock() else {
+                return Err(jsonrpc_core::Error::internal_error());
+            };
+            match cheatcodes_filter {
+                CheatcodeFilter::All(all) => {
+                    if all.ne("all") {
+                        return Err(SurfpoolError::enable_cheatcode(
+                            "Invalid option provided for enabling all cheatcodes. Try using 'all' or providing an array of specific cheatcodes".to_string(),
+                        )
+                        .into());
+                    }
+
+                    // we probably don't need to check whether lockout == true because surfnet_enableCheatcode won't be called if it's disabled
+                    cheatcode_ctx.filter = CheatcodeFilter::List(vec![]);
+                }
+                CheatcodeFilter::List(cheatcodes) => {
+                    for ref cheatcode in cheatcodes {
+                        debug!("enabling cheatcode: {cheatcode}");
+                        if !self.is_available_cheatcode(cheatcode) {
+                            return Err(SurfpoolError::enable_cheatcode(
+                                "Invalid cheatcode rpc method".to_string(),
+                            )
+                            .into());
+                        }
+
+                        if let Err(e) = cheatcode_ctx.enable_cheatcode(cheatcode) {
+                            return Err(SurfpoolError::enable_cheatcode(e).into());
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(RpcResponse {
+            value: (),
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
         })
     }
 
@@ -1708,6 +1977,35 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         })
     }
 
+    fn offline_account(
+        &self,
+        meta: Self::Metadata,
+        pubkey_str: String,
+        config: Option<OfflineAccountConfig>,
+    ) -> BoxFuture<Result<RpcResponse<()>>> {
+        let SurfnetRpcContext { svm_locker, .. } =
+            match meta.get_rpc_context(CommitmentConfig::confirmed()) {
+                Ok(res) => res,
+                Err(e) => return e.into(),
+            };
+        let pubkey = match verify_pubkey(&pubkey_str) {
+            Ok(res) => res,
+            Err(e) => return e.into(),
+        };
+        let config = config.unwrap_or_default();
+        let include_owned_accounts = config.include_owned_accounts.unwrap_or_default();
+
+        Box::pin(async move {
+            svm_locker
+                .insert_offline_account(pubkey, include_owned_accounts)
+                .await?;
+            Ok(RpcResponse {
+                context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+                value: (),
+            })
+        })
+    }
+
     fn stream_account(
         &self,
         meta: Self::Metadata,
@@ -1860,7 +2158,7 @@ mod tests {
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_system_interface::instruction::create_account;
-    use solana_transaction::Transaction;
+    use solana_transaction::{Transaction, versioned::VersionedTransaction};
     use spl_associated_token_account_interface::{
         address::get_associated_token_address_with_program_id,
         instruction::create_associated_token_account,
@@ -1878,7 +2176,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_get_transaction_profile() {
         // Create connection to local validator
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let recent_blockhash = client
             .context
             .svm_locker
@@ -2711,7 +3009,7 @@ mod tests {
 
     #[test]
     fn test_export_snapshot() {
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
 
         let pubkey1 = Pubkey::new_unique();
         let account1 = Account {
@@ -2747,7 +3045,7 @@ mod tests {
 
     #[test]
     fn test_export_snapshot_json_parsed() {
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
 
         let pubkey1 = Pubkey::new_unique();
         println!("Pubkey1: {}", pubkey1);
@@ -2843,7 +3141,7 @@ mod tests {
         use solana_signature::Signature;
         use surfpool_types::{ProfileResult, types::KeyedProfileResult};
 
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
 
         // Create several accounts in the network
         let account1_pubkey = Pubkey::new_unique();
@@ -2988,7 +3286,7 @@ mod tests {
             included_program_account_pubkey
         );
 
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
 
         let system_account = Account {
             lamports: 1_000_000,
@@ -3083,7 +3381,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_creates_accounts_automatically() {
         // Test that both program and program data accounts are created if they don't exist
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         // Verify accounts don't exist initially
@@ -3161,7 +3459,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_single_chunk_small() {
         // Test writing a small program in a single write
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let program_data = vec![0x01, 0x02, 0x03, 0x04, 0x05];
@@ -3210,7 +3508,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_single_chunk_large() {
         // Test writing a large program (1MB) in a single write
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let program_data = vec![0xAB; 1024 * 1024]; // 1 MB
@@ -3259,7 +3557,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_multiple_sequential_chunks() {
         // Test writing a program in multiple sequential chunks
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let chunks = vec![
@@ -3324,7 +3622,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_non_sequential_chunks() {
         // Test writing chunks out of order (backwards)
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let chunks = vec![
@@ -3390,7 +3688,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_overlapping_writes() {
         // Test that overlapping writes correctly overwrite previous data
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         // Write initial data
@@ -3458,7 +3756,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_zero_offset() {
         // Test writing at offset 0 (should write immediately after metadata)
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let data = vec![0x42; 128];
@@ -3496,7 +3794,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_large_offset() {
         // Test writing at a large offset (account should expand)
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let large_offset = 1024 * 1024; // 1 MB offset
@@ -3545,7 +3843,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_empty_data() {
         // Test writing empty data (should succeed but not write anything)
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let result = client
@@ -3567,7 +3865,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_single_byte() {
         // Test writing a single byte
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let data = vec![0x42];
@@ -3605,7 +3903,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_invalid_program_id() {
         // Test with invalid program ID
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
 
         let result = client
             .rpc
@@ -3630,7 +3928,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_invalid_hex_data() {
         // Test with invalid hex encoding
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let invalid_hex_strings = vec![
@@ -3669,7 +3967,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_rent_exemption() {
         // Test that rent exemption is maintained when account expands
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         // Write initial small data
@@ -3752,7 +4050,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_account_ownership() {
         // Test that created accounts have correct ownership
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
         let authority = Keypair::new();
 
@@ -3832,7 +4130,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_metadata_preservation() {
         // Test that program data account metadata is preserved across writes
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         // First write
@@ -3899,7 +4197,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_idempotent() {
         // Test that writing the same data twice produces the same result
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let data = vec![0x55; 512];
@@ -3965,7 +4263,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_write_program_context_slot() {
         // Test that response context contains valid slot
-        let client = TestSetup::new(SurfnetCheatcodesRpc);
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
         let program_id = Keypair::new();
 
         let result = client
@@ -3983,5 +4281,207 @@ mod tests {
         assert!(result.context.slot > 0, "Context slot should be valid");
 
         println!("✅ Response context is valid");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_write_program_small_no_minimum_program_artifacts() {
+        // Regression test: writing a program smaller than minimum_program.so (3312 bytes)
+        // should not leave leftover minimum_program.so bytes in the account.
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
+        let program_id = Keypair::new();
+
+        let program_data = vec![0xAB; 100];
+        let result = client
+            .rpc
+            .write_program(
+                Some(client.context.clone()),
+                program_id.pubkey().to_string(),
+                hex::encode(&program_data),
+                0,
+                None,
+            )
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "Failed to write program: {:?}",
+            result.err()
+        );
+
+        let program_data_address =
+            solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+        let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+            svm_reader
+                .inner
+                .get_account(&program_data_address)
+                .unwrap()
+                .unwrap()
+        });
+
+        let metadata_size =
+            solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata(
+            );
+
+        // Account data length should be exactly metadata + program data, not metadata + 3312
+        assert_eq!(
+            account.data.len(),
+            metadata_size + 100,
+            "Account data length should be metadata_size ({}) + 100 = {}, but was {}",
+            metadata_size,
+            metadata_size + 100,
+            account.data.len()
+        );
+
+        // Verify written content matches exactly
+        let written_data = &account.data[metadata_size..];
+        assert_eq!(
+            written_data, &program_data,
+            "Written data should match exactly"
+        );
+
+        // Verify no trailing non-zero bytes beyond written data
+        assert!(
+            account.data[metadata_size + 100..].is_empty(),
+            "There should be no trailing bytes beyond the written data"
+        );
+
+        println!("✅ Small program has no minimum_program.so artifacts");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_write_program_exact_account_size() {
+        // Regression test: verify account size is exactly correct for various data sizes,
+        // including sizes around the minimum_program.so boundary (3312 bytes).
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
+
+        let metadata_size =
+            solana_loader_v3_interface::state::UpgradeableLoaderState::size_of_programdata_metadata(
+            );
+
+        for data_len in [1usize, 100, 3311, 3312, 3313, 5000] {
+            let program_id = Keypair::new();
+            let program_data: Vec<u8> = (0..data_len).map(|i| (i % 256) as u8).collect();
+
+            let result = client
+                .rpc
+                .write_program(
+                    Some(client.context.clone()),
+                    program_id.pubkey().to_string(),
+                    hex::encode(&program_data),
+                    0,
+                    None,
+                )
+                .await;
+
+            assert!(
+                result.is_ok(),
+                "Failed to write program of size {}: {:?}",
+                data_len,
+                result.err()
+            );
+
+            let program_data_address =
+                solana_loader_v3_interface::get_program_data_address(&program_id.pubkey());
+            let account = client.context.svm_locker.with_svm_reader(|svm_reader| {
+                svm_reader
+                    .inner
+                    .get_account(&program_data_address)
+                    .unwrap()
+                    .unwrap()
+            });
+
+            assert_eq!(
+                account.data.len(),
+                metadata_size + data_len,
+                "For data_len={}, account data length should be {} but was {}",
+                data_len,
+                metadata_size + data_len,
+                account.data.len()
+            );
+
+            let written_data = &account.data[metadata_size..metadata_size + data_len];
+            assert_eq!(
+                written_data, &program_data,
+                "For data_len={}, written content should match exactly",
+                data_len
+            );
+        }
+
+        println!("✅ All program sizes produce exact account sizes");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_write_program_execution_uses_written_bytes_not_noop() {
+        // Regression test: after write_program, executing the program should use
+        // the written bytes, not the noop placeholder from init_programdata_account.
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
+        let program_id = Keypair::new();
+
+        // Create an "error program" ELF: identical to noop but returns r0=1 (error)
+        // instead of r0=0 (success). This lets us distinguish noop vs real execution.
+        let mut error_program_elf = crate::surfnet::noop_program::NOOP_PROGRAM_ELF.to_vec();
+        // Byte 124 is the first byte of the imm field in `mov64 r0, 0` at .text offset.
+        // Changing it to 1 makes the instruction `mov64 r0, 1` (program returns error).
+        error_program_elf[124] = 0x01;
+
+        // Write the error program
+        let result = client
+            .rpc
+            .write_program(
+                Some(client.context.clone()),
+                program_id.pubkey().to_string(),
+                hex::encode(&error_program_elf),
+                0,
+                None,
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "Failed to write program: {:?}",
+            result.err()
+        );
+
+        // Create a payer and fund it
+        let payer = Keypair::new();
+        client
+            .context
+            .svm_locker
+            .airdrop(&payer.pubkey(), 1_000_000_000)
+            .unwrap()
+            .unwrap();
+
+        // Build a transaction invoking the written program
+        let recent_blockhash = client
+            .context
+            .svm_locker
+            .with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+        // Build a minimal instruction that invokes the written program
+        let invoke_ix = solana_instruction::Instruction {
+            program_id: program_id.pubkey(),
+            accounts: vec![],
+            data: vec![],
+        };
+        let message = solana_message::Message::new_with_blockhash(
+            &[invoke_ix],
+            Some(&payer.pubkey()),
+            &recent_blockhash,
+        );
+        let tx = VersionedTransaction::try_new(
+            solana_message::VersionedMessage::Legacy(message),
+            &[&payer],
+        )
+        .unwrap();
+
+        // Simulate the transaction
+        let sim_result = client.context.svm_locker.simulate_transaction(tx, false);
+
+        // The error program returns r0=1, which should cause an InstructionError.
+        // If the noop (r0=0) is still cached, this would incorrectly succeed.
+        assert!(
+            sim_result.is_err(),
+            "Transaction should fail because the written program returns error (r0=1). \
+             If it succeeded, the noop placeholder is still being executed instead of \
+             the written program bytes."
+        );
     }
 }

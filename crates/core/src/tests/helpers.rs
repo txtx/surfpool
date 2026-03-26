@@ -5,7 +5,7 @@ use crossbeam_channel::Sender;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_transaction::versioned::VersionedTransaction;
-use surfpool_types::{RpcConfig, SimnetCommand};
+use surfpool_types::{CheatcodeConfig, RpcConfig, SimnetCommand};
 
 use crate::{
     rpc::RunloopContext,
@@ -65,6 +65,7 @@ where
                 svm_locker: SurfnetSvmLocker::new(surfnet_svm),
                 remote_rpc_client: None,
                 rpc_config: RpcConfig::default(),
+                cheatcode_config: CheatcodeConfig::new(),
             },
             rpc,
         }

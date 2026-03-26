@@ -4,6 +4,7 @@ use std::{
     fmt,
     path::PathBuf,
     str::FromStr,
+    sync::{Arc, Mutex},
 };
 
 use blake3::Hash;
@@ -762,6 +763,7 @@ impl CloudSurfnetRpcGating {
                 "surfnet_resetAccount".into(),
                 "surfnet_resetNetwork".into(),
                 "surfnet_exportSnapshot".into(),
+                "surfnet_offlineAccount".into(),
                 "surfnet_streamAccount".into(),
                 "surfnet_getStreamedAccounts".into(),
             ],
@@ -1130,6 +1132,7 @@ pub struct ExportSnapshotFilter {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResetAccountConfig {
     pub include_owned_accounts: Option<bool>,
 }
@@ -1143,11 +1146,26 @@ impl Default for ResetAccountConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamAccountConfig {
     pub include_owned_accounts: Option<bool>,
 }
 
 impl Default for StreamAccountConfig {
+    fn default() -> Self {
+        Self {
+            include_owned_accounts: Some(false),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfflineAccountConfig {
+    pub include_owned_accounts: Option<bool>,
+}
+
+impl Default for OfflineAccountConfig {
     fn default() -> Self {
         Self {
             include_owned_accounts: Some(false),
@@ -1217,12 +1235,191 @@ impl RunbookExecutionStatusReport {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheatcodeConfig {
+    pub lockout: bool, // if true, allows disabling even the `surfnet_enableCheatcodes`/`surfnetdisableCheatcodes` methods
+    pub filter: CheatcodeFilter,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct CheatcodeControlConfig {
+    pub lockout: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CheatcodeFilter {
+    All(String),
+    List(Vec<String>), // disables cheatcodes in a named list
+}
+
+impl CheatcodeConfig {
+    pub fn new() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(CheatcodeConfig {
+            lockout: false,
+            filter: CheatcodeFilter::List(vec![]),
+        }))
+    }
+
+    pub fn lockout(&mut self) {
+        self.lockout = true;
+    }
+
+    pub fn disable_all(&mut self, lockout: bool, available_cheatcodes: Vec<String>) {
+        if lockout {
+            self.lockout = true;
+        }
+        self.filter = Self::filter_all_list(lockout, available_cheatcodes);
+    }
+
+    pub fn disable_cheatcode(&mut self, cheatcode: &String) -> Result<(), String> {
+        if !self.lockout
+            && (cheatcode.eq("surfnet_enableCheatcode") || cheatcode.eq("surfnet_disableCheatcode"))
+        {
+            return Err("Cannot disable surfnet_disableCheatcode or surfnet_enableCheatcode while lockout is false".to_string());
+        }
+
+        if let CheatcodeFilter::List(list) = &mut self.filter {
+            if !list.contains(cheatcode) {
+                list.push(cheatcode.to_string());
+                Ok(())
+            } else {
+                Err("Cheatcode already disabled".to_string())
+            }
+        } else {
+            Err("All cheatcodes disabled".to_string())
+        }
+    }
+    pub fn enable_cheatcode(&mut self, cheatcode: &str) -> Result<(), String> {
+        if let CheatcodeFilter::List(list) = &mut self.filter {
+            if let Some(pos) = list.iter().position(|c| c == cheatcode) {
+                list.remove(pos);
+                Ok(())
+            } else {
+                Err("Cheatcode isn't disabled".to_string())
+            }
+        } else {
+            Err("All cheatcodes are disabled".to_string())
+        }
+    }
+
+    pub fn is_cheatcode_disabled(&self, cheatcode: &String) -> bool {
+        match &self.filter {
+            CheatcodeFilter::List(list) => list.contains(cheatcode),
+            CheatcodeFilter::All(_) => true,
+        }
+    }
+
+    pub fn filter_all_list(lockout: bool, available_cheatcodes: Vec<String>) -> CheatcodeFilter {
+        // when lockout == true, it's important to disable surfnet_disableCheatcode as well
+        // since calling surfnet_disableCheatcode with lockout == false will override the current config, which is a bug
+        if lockout {
+            CheatcodeFilter::All("all".to_string())
+        } else {
+            // remove `surfnet_disableCheatcode` and `surfnet_enableCheatcode` from the list of available cheatcodes
+            let filter = available_cheatcodes
+                .into_iter()
+                .filter(|c| (c.ne("surfnet_disableCheatcode") && c.ne("surfnet_enableCheatcode")))
+                .collect();
+            CheatcodeFilter::List(filter)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
     use solana_account_decoder_client_types::{ParsedAccount, UiAccountData};
 
     use super::*;
+
+    #[test]
+    fn test_disable_cheatcode_with_lockout_allows_protected_methods() {
+        // This test catches the bug where lockout was not propagated to
+        // CheatcodeConfig before calling disable_cheatcode(), causing
+        // "Cannot disable surfnet_disableCheatcode or surfnet_enableCheatcode
+        // while lockout is false" even when the request included lockout: true.
+        let config = CheatcodeConfig::new();
+        let mut config = config.lock().unwrap();
+
+        // Simulate the RPC layer propagating lockout before processing the list
+        config.lockout();
+
+        // These should succeed because lockout is set
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_setAccount".to_string())
+                .is_ok()
+        );
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_enableCheatcode".to_string())
+                .is_ok()
+        );
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_disableCheatcode".to_string())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_disable_cheatcode_without_lockout_rejects_protected_methods() {
+        let config = CheatcodeConfig::new();
+        let mut config = config.lock().unwrap();
+
+        // Without lockout, disabling protected methods should fail
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_enableCheatcode".to_string())
+                .is_err()
+        );
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_disableCheatcode".to_string())
+                .is_err()
+        );
+
+        // But regular cheatcodes should still work
+        assert!(
+            config
+                .disable_cheatcode(&"surfnet_setAccount".to_string())
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_disable_all_with_lockout_persists_lockout_flag() {
+        // This test catches the bug where disable_all() did not set
+        // self.lockout = true, so subsequent operations would not see lockout.
+        let config = CheatcodeConfig::new();
+        let mut config = config.lock().unwrap();
+
+        let available = vec![
+            "surfnet_setAccount".to_string(),
+            "surfnet_enableCheatcode".to_string(),
+            "surfnet_disableCheatcode".to_string(),
+        ];
+
+        config.disable_all(true, available);
+        assert!(config.lockout);
+    }
+
+    #[test]
+    fn test_disable_all_without_lockout_does_not_set_lockout() {
+        let config = CheatcodeConfig::new();
+        let mut config = config.lock().unwrap();
+
+        let available = vec![
+            "surfnet_setAccount".to_string(),
+            "surfnet_enableCheatcode".to_string(),
+            "surfnet_disableCheatcode".to_string(),
+        ];
+
+        config.disable_all(false, available);
+        assert!(!config.lockout);
+    }
 
     #[test]
     fn print_ui_keyed_profile_result() {
