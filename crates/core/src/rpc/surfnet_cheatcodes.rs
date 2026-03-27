@@ -4547,4 +4547,101 @@ mod tests {
              the written program bytes."
         );
     }
+
+    #[test]
+    fn test_stream_accounts_registers_multiple() {
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
+
+        let pubkey1 = Pubkey::new_unique();
+        let pubkey2 = Pubkey::new_unique();
+        let pubkey3 = Pubkey::new_unique();
+
+        let entries = vec![
+            StreamAccountsEntry {
+                pubkey: pubkey1.to_string(),
+                include_owned_accounts: Some(true),
+            },
+            StreamAccountsEntry {
+                pubkey: pubkey2.to_string(),
+                include_owned_accounts: Some(false),
+            },
+            StreamAccountsEntry {
+                pubkey: pubkey3.to_string(),
+                include_owned_accounts: None,
+            },
+        ];
+
+        let result = client
+            .rpc
+            .stream_accounts(Some(client.context.clone()), entries);
+        assert!(result.is_ok(), "stream_accounts should succeed");
+
+        // Verify all accounts are registered via get_streamed_accounts
+        let streamed = client
+            .rpc
+            .get_streamed_accounts(Some(client.context.clone()))
+            .expect("Failed to get streamed accounts")
+            .value;
+
+        let accounts = serde_json::to_value(&streamed).unwrap();
+        let accounts_arr = accounts["accounts"].as_array().unwrap();
+        assert_eq!(accounts_arr.len(), 3, "Should have 3 streamed accounts");
+
+        // Check individual entries
+        let find = |pk: &str| {
+            accounts_arr
+                .iter()
+                .find(|a| a["pubkey"].as_str().unwrap() == pk)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(find(&pubkey1.to_string())["includeOwnedAccounts"], true);
+        assert_eq!(find(&pubkey2.to_string())["includeOwnedAccounts"], false);
+        assert_eq!(find(&pubkey3.to_string())["includeOwnedAccounts"], false);
+    }
+
+    #[test]
+    fn test_stream_accounts_empty_list() {
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
+
+        let result = client
+            .rpc
+            .stream_accounts(Some(client.context.clone()), vec![]);
+        assert!(
+            result.is_ok(),
+            "stream_accounts with empty list should succeed"
+        );
+
+        let streamed = client
+            .rpc
+            .get_streamed_accounts(Some(client.context.clone()))
+            .expect("Failed to get streamed accounts")
+            .value;
+
+        let accounts = serde_json::to_value(&streamed).unwrap();
+        let accounts_arr = accounts["accounts"].as_array().unwrap();
+        assert_eq!(
+            accounts_arr.len(),
+            0,
+            "Should have no streamed accounts after empty call"
+        );
+    }
+
+    #[test]
+    fn test_stream_accounts_invalid_pubkey() {
+        let client = TestSetup::new(SurfnetCheatcodesRpc::empty());
+
+        let entries = vec![StreamAccountsEntry {
+            pubkey: "not-a-valid-pubkey".to_string(),
+            include_owned_accounts: None,
+        }];
+
+        let result = client
+            .rpc
+            .stream_accounts(Some(client.context.clone()), entries);
+        assert!(
+            result.is_err(),
+            "stream_accounts with invalid pubkey should fail"
+        );
+    }
 }
