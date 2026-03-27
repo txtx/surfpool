@@ -765,6 +765,7 @@ impl CloudSurfnetRpcGating {
                 "surfnet_exportSnapshot".into(),
                 "surfnet_offlineAccount".into(),
                 "surfnet_streamAccount".into(),
+                "surfnet_streamAccounts".into(),
                 "surfnet_getStreamedAccounts".into(),
             ],
         }
@@ -1157,6 +1158,14 @@ impl Default for StreamAccountConfig {
             include_owned_accounts: Some(false),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamAccountsEntry {
+    pub pubkey: String,
+    #[serde(default)]
+    pub include_owned_accounts: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
