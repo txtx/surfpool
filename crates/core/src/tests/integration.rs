@@ -1062,13 +1062,11 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
