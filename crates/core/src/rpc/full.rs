@@ -2913,7 +2913,7 @@ mod tests {
     #[test]
     fn test_request_airdrop() {
         let pk = Pubkey::new_unique();
-        let lamports = 1000;
+        let lamports = 1_000_000;
         let setup = TestSetup::new(SurfpoolFullRpc);
         let res = setup
             .rpc
