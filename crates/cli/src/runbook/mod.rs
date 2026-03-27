@@ -7,7 +7,6 @@ use log::{debug, error, info, trace, warn};
 use surfpool_types::SimnetEvent;
 use tokio::{sync::RwLock, task::JoinHandle};
 use txtx_addon_network_svm::SvmNetworkAddon;
-use txtx_cloud::router::TxtxAuthenticatedCloudServiceRouter;
 use txtx_core::{
     kit::{
         Addon,
@@ -36,7 +35,7 @@ use txtx_gql::kit::{
     uuid::Uuid,
 };
 
-use crate::cli::{DEFAULT_ID_SVC_URL, ExecuteRunbook, setup_logger};
+use crate::cli::{ExecuteRunbook, setup_logger};
 
 lazy_static::lazy_static! {
     static ref CLI_SPINNER_STYLE: ProgressStyle = {
@@ -219,9 +218,7 @@ pub async fn execute_runbook(
         )?;
     }
 
-    let cloud_svc_context = CloudServiceContext::new(Some(Arc::new(
-        TxtxAuthenticatedCloudServiceRouter::new(DEFAULT_ID_SVC_URL),
-    )));
+    let cloud_svc_context = CloudServiceContext::new();
 
     let res = runbook
         .build_contexts_from_sources(

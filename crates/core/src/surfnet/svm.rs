@@ -64,7 +64,7 @@ use txtx_addon_kit::{
     types::types::{AddonJsonConverter, Value},
 };
 use txtx_addon_network_svm::codec::idl::borsh_encode_value_to_idl_type;
-use txtx_addon_network_svm_types::subgraph::idl::{
+use txtx_addon_network_svm_types::idl::{
     parse_bytes_to_value_with_expected_idl_type_def_ty,
     parse_bytes_to_value_with_expected_idl_type_def_ty_with_leftover_bytes,
 };

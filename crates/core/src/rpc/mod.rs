@@ -15,7 +15,6 @@ use solana_clock::Slot;
 use surfpool_types::{CheatcodeConfig, SimnetCommand, SimnetEvent, types::RpcConfig};
 
 use crate::{
-    PluginManagerCommand,
     error::{SurfpoolError, SurfpoolResult},
     surfnet::{
         locker::SurfnetSvmLocker,
@@ -48,7 +47,6 @@ pub struct RunloopContext {
     pub id: Option<(Hash, String)>,
     pub svm_locker: SurfnetSvmLocker,
     pub simnet_commands_tx: Sender<SimnetCommand>,
-    pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub remote_rpc_client: Option<SurfnetRemoteClient>,
     pub rpc_config: RpcConfig,
     pub cheatcode_config: Arc<Mutex<CheatcodeConfig>>,
@@ -114,7 +112,6 @@ impl Metadata for RunloopContext {}
 pub struct SurfpoolMiddleware {
     pub surfnet_svm: SurfnetSvmLocker,
     pub simnet_commands_tx: Sender<SimnetCommand>,
-    pub plugin_manager_commands_tx: Sender<PluginManagerCommand>,
     pub config: RpcConfig,
     pub remote_rpc_client: Option<SurfnetRemoteClient>,
     pub cheatcode_config: Arc<Mutex<CheatcodeConfig>>,
@@ -124,14 +121,12 @@ impl SurfpoolMiddleware {
     pub fn new(
         surfnet_svm: SurfnetSvmLocker,
         simnet_commands_tx: &Sender<SimnetCommand>,
-        plugin_manager_commands_tx: &Sender<PluginManagerCommand>,
         config: &RpcConfig,
         remote_rpc_client: &Option<SurfnetRemoteClient>,
     ) -> Self {
         Self {
             surfnet_svm,
             simnet_commands_tx: simnet_commands_tx.clone(),
-            plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
             config: config.clone(),
             remote_rpc_client: remote_rpc_client.clone(),
             cheatcode_config: CheatcodeConfig::new(),
@@ -174,7 +169,6 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             id: None,
             svm_locker: self.surfnet_svm.clone(),
             simnet_commands_tx: self.simnet_commands_tx.clone(),
-            plugin_manager_commands_tx: self.plugin_manager_commands_tx.clone(),
             remote_rpc_client: self.remote_rpc_client.clone(),
             rpc_config: self.config.clone(),
             cheatcode_config: self.cheatcode_config.clone(),
@@ -261,7 +255,6 @@ impl Middleware<Option<SurfpoolWebsocketMeta>> for SurfpoolWebsocketMiddleware {
             id: None,
             svm_locker: self.surfpool_middleware.surfnet_svm.clone(),
             simnet_commands_tx: self.surfpool_middleware.simnet_commands_tx.clone(),
-            plugin_manager_commands_tx: self.surfpool_middleware.plugin_manager_commands_tx.clone(),
             remote_rpc_client: self.surfpool_middleware.remote_rpc_client.clone(),
             rpc_config: self.surfpool_middleware.config.clone(),
             cheatcode_config: self.surfpool_middleware.cheatcode_config.clone(),

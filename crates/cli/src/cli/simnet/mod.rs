@@ -33,7 +33,7 @@ use txtx_gql::kit::{indexmap::IndexMap, types::frontend::LogLevel, uuid::Uuid};
 
 use super::{Context, ExecuteRunbook, StartSimnet};
 use crate::{
-    http::start_subgraph_and_explorer_server,
+    http::start_studio_and_scenario_server,
     runbook::{execute_in_memory_runbook, execute_on_disk_runbook, handle_log_event},
     scaffold::{
         ProgramFrameworkData, detect_program_frameworks, scaffold_iac_layout,
@@ -69,7 +69,6 @@ pub async fn handle_start_local_surfnet_command(
     surfnet_svm.apply_feature_config(&feature_config);
 
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
-    let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
     let simnet_events_tx = surfnet_svm.simnet_events_tx.clone();
 
@@ -142,19 +141,16 @@ pub async fn handle_start_local_surfnet_command(
         workspace: None,
     };
 
-    let subgraph_database_path = cmd.subgraph_db.as_deref().unwrap_or(":memory:");
-    let explorer_handle = match start_subgraph_and_explorer_server(
+    let explorer_handle = match start_studio_and_scenario_server(
         studio_binding_address,
-        subgraph_database_path,
         sanitized_config.clone(),
         subgraph_events_tx.clone(),
-        subgraph_commands_rx,
         ctx,
         !cmd.no_studio,
     )
     .await
     {
-        Ok((explorer_handle, _)) => Some(explorer_handle),
+        Ok(explorer_handle) => Some(explorer_handle),
         Err(e) => {
             error!("Failed to start subgraph and explorer server: {}", e);
             let _ = simnet_events_tx.send(SimnetEvent::warn(format!(
@@ -175,7 +171,6 @@ pub async fn handle_start_local_surfnet_command(
             let future = start_local_surfnet(
                 surfnet_svm,
                 config_copy,
-                subgraph_commands_tx,
                 simnet_commands_tx_copy,
                 simnet_commands_rx,
                 geyser_events_rx,

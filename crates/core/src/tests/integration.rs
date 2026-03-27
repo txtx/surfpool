@@ -47,12 +47,11 @@ use uuid::Uuid;
 pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
 use crate::{
-    PluginManagerCommand,
     error::SurfpoolError,
     rpc::{
         RunloopContext,
-        full::{Full, FullClient, SurfpoolFullRpc, SurfpoolRpcSendTransactionConfig},
-        minimal::{Minimal, MinimalClient, SurfpoolMinimalRpc},
+        full::{FullClient, SurfpoolRpcSendTransactionConfig},
+        minimal::MinimalClient,
         surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
     runloops::start_local_surfnet_runloop,
@@ -100,14 +99,13 @@ async fn test_simnet_ready(test_type: TestType) {
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
             svm_locker,
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -149,7 +147,7 @@ async fn test_simnet_ticks(test_type: TestType) {
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let (test_tx, test_rx) = unbounded();
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
@@ -157,7 +155,6 @@ async fn test_simnet_ticks(test_type: TestType) {
         let future = start_local_surfnet_runloop(
             svm_locker,
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -219,14 +216,13 @@ async fn test_simnet_some_sol_transfers(test_type: TestType) {
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
             svm_locker,
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -378,7 +374,7 @@ async fn test_add_alt_entries_fetching(test_type: TestType) {
     println!("Initializing SVM, binding to port {}", bind_port);
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
 
     let moved_svm_locker = svm_locker.clone();
@@ -386,7 +382,6 @@ async fn test_add_alt_entries_fetching(test_type: TestType) {
         let future = start_local_surfnet_runloop(
             SurfnetSvmLocker(moved_svm_locker),
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -551,7 +546,7 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
 
     let moved_svm_locker = svm_locker.clone();
@@ -559,7 +554,6 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
         let future = start_local_surfnet_runloop(
             SurfnetSvmLocker(moved_svm_locker),
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -687,7 +681,7 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
 
     let moved_svm_locker = svm_locker.clone();
@@ -695,7 +689,6 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
         let future = start_local_surfnet_runloop(
             SurfnetSvmLocker(moved_svm_locker),
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -789,13 +782,11 @@ async fn test_surfnet_estimate_compute_units(test_type: TestType) {
     // Manually construct RunloopContext
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -1071,13 +1062,11 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -1373,13 +1362,11 @@ async fn test_get_transaction_profile(test_type: TestType) {
     // Manually construct RunloopContext
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -1573,13 +1560,11 @@ fn test_register_and_get_idl_without_slot(test_type: TestType) {
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -1629,13 +1614,11 @@ fn test_register_and_get_idl_with_slot(test_type: TestType) {
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -1711,13 +1694,11 @@ async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType
 
     // Setup runloop context
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -3392,13 +3373,11 @@ async fn test_get_local_signatures_without_limit(test_type: TestType) {
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
 
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -3497,13 +3476,11 @@ async fn test_get_local_signatures_with_limit(test_type: TestType) {
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
 
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -3667,7 +3644,7 @@ fn boot_simnet(
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
     let svm_locker_cc: SurfnetSvmLocker = svm_locker.clone();
@@ -3676,7 +3653,6 @@ fn boot_simnet(
         let future = start_local_surfnet_runloop(
             svm_locker_cc,
             config,
-            subgraph_commands_tx,
             simnet_commands_tx_cc,
             simnet_commands_rx,
             geyser_events_rx,
@@ -3705,13 +3681,11 @@ fn test_time_travel_resume_paused_clock(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, _) =
         boot_simnet(BlockProductionMode::Clock, Some(100), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -3787,13 +3761,12 @@ fn test_time_travel_absolute_timestamp(test_type: TestType) {
         Some(slot_time.clone()),
         test_type,
     );
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx.clone(),
-        plugin_manager_commands_tx: plugin_cmd_tx,
+
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -3870,13 +3843,12 @@ fn test_time_travel_absolute_slot(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx.clone(),
-        plugin_manager_commands_tx: plugin_cmd_tx,
+
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -3947,13 +3919,12 @@ fn test_time_travel_absolute_epoch(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx.clone(),
-        plugin_manager_commands_tx: plugin_cmd_tx,
+
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -4681,13 +4652,11 @@ fn test_reset_network_time_travel_timestamp(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -4734,13 +4703,11 @@ fn test_reset_network_time_travel_slot(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -4791,13 +4758,11 @@ fn test_reset_network_time_travel_epoch(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -4870,7 +4835,6 @@ fn start_surfnet(
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
     let svm_locker_cc: SurfnetSvmLocker = svm_locker.clone();
 
@@ -4878,7 +4842,6 @@ fn start_surfnet(
         let future = start_local_surfnet_runloop(
             svm_locker_cc,
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -5504,7 +5467,8 @@ async fn test_remote_get_multiple_accounts_ordering(test_type: TestType) {
     // Insert a plain SOL account on A
     datasource_svm_locker
         .airdrop(&plain_pubkey, LAMPORTS_PER_SOL)
-        .expect("Failed to airdrop to plain account");
+        .expect("Failed to airdrop to plain account")
+        .unwrap();
 
     // Start surfnet B pointing to A as remote
     let (surfnet_url, _) = start_surfnet(vec![], Some(datasource_url), another_test_type)
@@ -7774,13 +7738,11 @@ async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
     // Create the locker and runloop context
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
@@ -8696,14 +8658,13 @@ async fn test_send_transaction_skip_sig_verify_processes_and_updates_state(test_
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
             svm_locker,
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
