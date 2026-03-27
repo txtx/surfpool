@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use jsonrpc_core::{Error, Result};
 use jsonrpc_derive::rpc;
+use sha2::{Digest, Sha256};
 use solana_client::{rpc_config::RpcSendTransactionConfig, rpc_custom_error::RpcCustomError};
 use solana_signature::Signature;
 
@@ -9,6 +10,9 @@ use super::{
     RunloopContext,
     full::{Full, SurfpoolFullRpc, SurfpoolRpcSendTransactionConfig},
 };
+
+/// Maximum number of transactions allowed in a single bundle, matching Jito's limit.
+const MAX_BUNDLE_SIZE: usize = 5;
 
 /// Jito-specific RPC methods for bundle submission
 #[rpc]
@@ -41,9 +45,12 @@ pub trait Jito {
     /// ```
     ///
     /// ## Notes
+    /// - Bundles are limited to a maximum of 5 transactions, matching Jito's limit
     /// - Transactions are processed sequentially in the order provided
     /// - Each transaction must complete successfully before the next one starts
-    /// - If any transaction fails, the entire bundle is rejected
+    /// - If any transaction fails, an error is returned — however, earlier transactions in the
+    ///   bundle that already succeeded are NOT rolled back (not atomic)
+    /// - TODO(#594): implement atomic all-or-nothing bundle execution
     /// - The bundle ID is calculated as SHA-256 hash of comma-separated transaction signatures
     #[rpc(meta, name = "sendBundle")]
     fn send_bundle(
@@ -70,6 +77,12 @@ impl Jito for SurfpoolJitoRpc {
             return Err(Error::invalid_params("Bundle cannot be empty"));
         }
 
+        if transactions.len() > MAX_BUNDLE_SIZE {
+            return Err(Error::invalid_params(format!(
+                "Bundle exceeds maximum size of {MAX_BUNDLE_SIZE} transactions"
+            )));
+        }
+
         let Some(_ctx) = &meta else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
@@ -79,15 +92,17 @@ impl Jito for SurfpoolJitoRpc {
 
         let full_rpc = SurfpoolFullRpc;
         let mut bundle_signatures = Vec::new();
+        let base_config = config.unwrap_or_default();
 
         // Process each transaction in the bundle sequentially using Full RPC
         // Force skip_preflight to match Jito Block Engine behavior (no simulation on sendBundle)
+        // NOTE: this is not atomic — earlier transactions are NOT rolled back if a later one fails.
+        // TODO(#594): implement atomic all-or-nothing bundle execution
         for (idx, tx_data) in transactions.iter().enumerate() {
-            let base_config = config.clone().unwrap_or_default();
             let bundle_config = Some(SurfpoolRpcSendTransactionConfig {
                 base: RpcSendTransactionConfig {
                     skip_preflight: true,
-                    ..base_config
+                    ..base_config.clone()
                 },
                 skip_sig_verify: None,
             });
@@ -113,7 +128,6 @@ impl Jito for SurfpoolJitoRpc {
 
         // Calculate bundle ID by hashing comma-separated signatures (Jito-compatible)
         // https://github.com/jito-foundation/jito-solana/blob/master/sdk/src/bundle/mod.rs#L21
-        use sha2::{Digest, Sha256};
         let concatenated_signatures = bundle_signatures
             .iter()
             .map(|sig| sig.to_string())
@@ -167,6 +181,23 @@ mod tests {
         assert!(
             err.message.contains("Bundle cannot be empty"),
             "Expected 'Bundle cannot be empty' error, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn test_send_bundle_exceeds_max_size_rejected() {
+        let setup = TestSetup::new(SurfpoolJitoRpc);
+        let transactions = vec!["tx".to_string(); MAX_BUNDLE_SIZE + 1];
+        let result = setup
+            .rpc
+            .send_bundle(Some(setup.context), transactions, None);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.message.contains("exceeds maximum size"),
+            "Expected max size error, got: {}",
             err.message
         );
     }
