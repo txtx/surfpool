@@ -409,7 +409,6 @@ impl StartSimnet {
             } else {
                 Some(self.log_bytes_limit)
             },
-            feature_config: self.feature_config(),
             skip_signature_verification: self.skip_signature_verification,
             surfnet_id: self.surfnet_id.clone(),
             snapshot,
