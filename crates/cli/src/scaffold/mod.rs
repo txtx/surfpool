@@ -36,7 +36,6 @@ pub struct ProgramFrameworkData {
     pub accounts: Option<Vec<AccountEntry>>,
     pub accounts_dir: Option<Vec<AccountDirEntry>>,
     pub clones: Option<Vec<String>>,
-    pub generate_subgraphs: bool,
 }
 
 impl ProgramFrameworkData {
@@ -47,7 +46,6 @@ impl ProgramFrameworkData {
         accounts: Option<Vec<AccountEntry>>,
         accounts_dir: Option<Vec<AccountDirEntry>>,
         clones: Option<Vec<String>>,
-        generate_subgraphs: bool,
     ) -> Self {
         Self {
             framework,
@@ -56,7 +54,6 @@ impl ProgramFrameworkData {
             accounts,
             accounts_dir,
             clones,
-            generate_subgraphs,
         }
     }
 
@@ -68,7 +65,6 @@ impl ProgramFrameworkData {
             accounts: None,
             accounts_dir: None,
             clones: None,
-            generate_subgraphs: true,
         }
     }
 }
@@ -126,15 +122,13 @@ pub async fn detect_program_frameworks(
 #[derive(Debug, Clone)]
 pub struct ProgramMetadata {
     name: String,
-    idl: Option<String>,
     so_exists: bool,
 }
 
 impl ProgramMetadata {
-    pub fn new(name: &str, idl: &Option<String>, so_exists: bool) -> Self {
+    pub fn new(name: &str, so_exists: bool) -> Self {
         Self {
             name: name.to_string(),
-            idl: idl.clone(),
             so_exists,
         }
     }
@@ -146,7 +140,6 @@ pub fn scaffold_in_memory_iac(
     genesis_accounts: &Option<Vec<GenesisEntry>>,
     accounts: &Option<Vec<AccountEntry>>,
     accounts_dir: &Option<Vec<AccountDirEntry>>,
-    generate_subgraphs: bool,
     artifacts_path: Option<&str>,
 ) -> Result<(String, RunbookSources, WorkspaceManifest), String> {
     let mut deployment_runbook_src: String = String::new();
@@ -168,19 +161,6 @@ pub fn scaffold_in_memory_iac(
                     artifacts_path,
                 ),
             );
-
-            if generate_subgraphs {
-                if let Some(subgraph_iac) = &framework
-                    .get_interpolated_subgraph_template(
-                        &program_metadata.name,
-                        program_metadata.idl.as_ref(),
-                    )
-                    .ok()
-                    .flatten()
-                {
-                    deployment_runbook_src.push_str(subgraph_iac);
-                }
-            }
         } else {
             debug!(
                 "Skipping program {} deployment in in-memory IaC since the .so file was not found",
@@ -225,7 +205,6 @@ pub fn scaffold_iac_layout(
     programs: &[ProgramMetadata],
     base_location: &FileLocation,
     auto_generate_runbooks: bool,
-    generate_subgraphs: bool,
 ) -> Result<(), String> {
     let mut target_location = base_location.clone();
     target_location.append_path("target")?;
@@ -288,7 +267,6 @@ pub fn scaffold_iac_layout(
     };
 
     let mut deployment_runbook_src: String = String::new();
-    let mut subgraph_runbook_src: Option<String> = None;
     deployment_runbook_src.push_str(&get_interpolated_header_template(&format!(
         "Manage {} deployment through Crypto Infrastructure as Code",
         manifest.name
@@ -322,20 +300,6 @@ pub fn scaffold_iac_layout(
         deployment_runbook_src.push_str(
             &framework.get_interpolated_program_deployment_template(&program_metadata.name),
         );
-
-        if generate_subgraphs {
-            subgraph_runbook_src = framework.get_interpolated_subgraph_template(
-                &program_metadata.name,
-                program_metadata.idl.as_ref(),
-            )?;
-        }
-
-        // Configure initialize instruction
-        // let args = vec![
-        //     Value::string("hellosol".into()),
-        //     Value::string(target_location.to_string())
-        // ];
-        // let command = GetProgramFromAnchorProject::run(function_spec, &context, &args);
     }
 
     let runbook_name = "deployment";
@@ -480,24 +444,6 @@ pub fn scaffold_iac_layout(
                     .get_relative_path_from_base(base_location)
                     .map_err(|e| format!("Invalid Runbook file location: {e}"))?
             );
-
-            // write subgraph.tx
-            if let Some(subgraph_runbook_src) = subgraph_runbook_src {
-                let mut base_dir = runbook_folder_location.clone();
-                base_dir.append_path("subgraphs.localnet.tx")?;
-                let _ = File::create(base_dir.to_string())
-                    .map_err(|e| format!("Failed to create Runbook subgraph file: {e}"))?;
-                base_dir
-                    .write_content(subgraph_runbook_src.as_bytes())
-                    .map_err(|e| format!("Failed to write data to Runbook subgraph file: {e}"))?;
-                println!(
-                    "{} {}",
-                    green!("Created file"),
-                    base_dir
-                        .get_relative_path_from_base(base_location)
-                        .map_err(|e| format!("Invalid Runbook file location: {e}"))?
-                );
-            }
 
             // Create local signer
             let mut base_dir = runbook_folder_location.clone();

@@ -2,7 +2,7 @@ use txtx_addon_network_svm::templates::{
     AccountDirEntry, AccountEntry, GenesisEntry,
     get_in_memory_interpolated_anchor_program_deployment_template,
     get_in_memory_interpolated_native_program_deployment_template,
-    get_interpolated_anchor_program_deployment_template, get_interpolated_anchor_subgraph_template,
+    get_interpolated_anchor_program_deployment_template,
     get_interpolated_native_program_deployment_template, get_interpolated_setup_surfnet_template,
 };
 
@@ -61,27 +61,7 @@ impl Framework {
             base
         }
     }
-    pub fn get_interpolated_subgraph_template(
-        &self,
-        program_name: &str,
-        idl: Option<&String>,
-    ) -> Result<Option<String>, String> {
-        let Some(idl) = idl else {
-            return Ok(None);
-        };
 
-        match self {
-            Framework::Anchor | Framework::Native | Framework::Pinocchio => {
-                let some_template = get_interpolated_anchor_subgraph_template(program_name, idl)
-                    .map_err(|e| {
-                        format!("failed to generate subgraph infrastructure as code: {}", e)
-                    })?;
-                Ok(some_template)
-            }
-            Framework::Steel => todo!(),
-            Framework::Typhoon => todo!(),
-        }
-    }
     pub fn get_interpolated_setup_surfnet_template(
         &self,
         genesis_accounts: &Vec<GenesisEntry>,

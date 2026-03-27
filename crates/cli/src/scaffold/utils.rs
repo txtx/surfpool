@@ -3,7 +3,6 @@ use std::collections::{BTreeMap, HashMap};
 use anyhow::{Result, anyhow};
 use convert_case::{Case, Casing};
 use serde::Deserialize;
-use txtx_addon_network_svm::codec::idl::IdlRef;
 use txtx_gql::kit::helpers::fs::FileLocation;
 
 use super::ProgramMetadata;
@@ -26,23 +25,6 @@ pub fn get_program_metadata_from_manifest_with_dep(
 
     let program_name = package.name.to_case(Case::Snake);
 
-    let mut potential_idl_path = base_location.clone();
-    let _ = potential_idl_path.append_path(&format!("idl/{program_name}.json"));
-    let idl = if potential_idl_path.exists() {
-        let idl_content = potential_idl_path
-            .read_content()
-            .map_err(|e| anyhow!("failed to read program idl: {e}"))?;
-
-        let idl_ref = IdlRef::from_bytes(&idl_content)
-            .map_err(|e| anyhow!("failed to convert idl to anchor-style idl: {e}"))?;
-
-        let idl = serde_json::to_string_pretty(&idl_ref.idl)
-            .map_err(|e| anyhow!("failed to serialize idl: {e}"))?;
-        Some(idl)
-    } else {
-        None
-    };
-
     let so_exists = {
         let so_path_str = if let Some(artifacts) = artifacts_path {
             format!("{}/{}.so", artifacts, program_name)
@@ -56,7 +38,7 @@ pub fn get_program_metadata_from_manifest_with_dep(
         so_path.exists()
     };
 
-    Ok(Some(ProgramMetadata::new(&program_name, &idl, so_exists)))
+    Ok(Some(ProgramMetadata::new(&program_name, so_exists)))
 }
 
 #[derive(Debug, Clone, Deserialize)]
