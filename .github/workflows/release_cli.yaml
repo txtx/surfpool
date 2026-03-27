@@ -196,19 +196,19 @@ jobs:
 
       - name: Build - Cargo (Windows)
         if: matrix.os == 'windows-latest'
-        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check
 
       - name: Build - Cargo (macOS x64)
         if: matrix.os == 'macos-latest' && matrix.architecture == 'x64'
-        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check
 
       - name: Build - Cargo (macOS ARM64)
         if: matrix.os == 'macos-latest' && matrix.architecture == 'arm64'
-        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check
 
       - name: Build - Cargo (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph # --features geyser_plugin # Disabled: version conflicts with litesvm 0.9.1 (requires solana-instruction =3.0.0 vs ~3.1)
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check # --features geyser_plugin # Disabled: version conflicts with litesvm 0.9.1 (requires solana-instruction =3.0.0 vs ~3.1)
 
       # Don't compress for Windows because winget can't yet unzip files
       - name: Compress cargo artifact (not windows)
