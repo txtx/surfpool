@@ -9,7 +9,7 @@ use surfpool_types::{CheatcodeConfig, RpcConfig, SimnetCommand};
 
 use crate::{
     rpc::RunloopContext,
-    surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
+    surfnet::{PluginCommand, locker::SurfnetSvmLocker, svm::SurfnetSvm},
 };
 
 pub fn get_free_port() -> Result<u16, String> {
@@ -58,6 +58,8 @@ where
         };
         surfnet_svm.transactions_processed = 69;
 
+        let (plugin_commands_tx, _plugin_commands_rx) =
+            crossbeam_channel::unbounded::<PluginCommand>();
         TestSetup {
             context: RunloopContext {
                 simnet_commands_tx: simnet_commands_tx.clone(),
@@ -66,6 +68,7 @@ where
                 remote_rpc_client: None,
                 rpc_config: RpcConfig::default(),
                 cheatcode_config: CheatcodeConfig::new(),
+                plugin_commands_tx,
             },
             rpc,
         }

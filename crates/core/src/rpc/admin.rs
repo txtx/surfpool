@@ -1,10 +1,10 @@
-use jsonrpc_core::{BoxFuture, Result};
+use jsonrpc_core::{BoxFuture, Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
 use solana_client::rpc_custom_error::RpcCustomError;
 use surfpool_types::SimnetCommand;
 
 use super::RunloopContext;
-use crate::{PluginInfo, rpc::State};
+use crate::{PluginInfo, rpc::State, surfnet::PluginCommand};
 
 #[rpc]
 pub trait AdminRpc {
@@ -215,19 +215,96 @@ impl AdminRpc for SurfpoolAdminRpc {
         name: String,
         config_file: String,
     ) -> BoxFuture<Result<()>> {
-        todo!()
+        Box::pin(async move {
+            let Some(ctx) = meta else {
+                return Err(RpcCustomError::NodeUnhealthy {
+                    num_slots_behind: None,
+                }
+                .into());
+            };
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            ctx.plugin_commands_tx
+                .send(PluginCommand::Reload {
+                    name,
+                    config_file,
+                    response_tx: tx,
+                })
+                .map_err(|_| Error::internal_error())?;
+            rx.recv()
+                .map_err(|_| Error::internal_error())?
+                .map_err(|e| Error {
+                    code: ErrorCode::InternalError,
+                    message: e,
+                    data: None,
+                })
+        })
     }
 
     fn unload_plugin(&self, meta: Self::Metadata, name: String) -> BoxFuture<Result<()>> {
-        todo!()
+        Box::pin(async move {
+            let Some(ctx) = meta else {
+                return Err(RpcCustomError::NodeUnhealthy {
+                    num_slots_behind: None,
+                }
+                .into());
+            };
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            ctx.plugin_commands_tx
+                .send(PluginCommand::Unload {
+                    name,
+                    response_tx: tx,
+                })
+                .map_err(|_| Error::internal_error())?;
+            rx.recv()
+                .map_err(|_| Error::internal_error())?
+                .map_err(|e| Error {
+                    code: ErrorCode::InternalError,
+                    message: e,
+                    data: None,
+                })
+        })
     }
 
     fn load_plugin(&self, meta: Self::Metadata, config_file: String) -> BoxFuture<Result<String>> {
-        todo!()
+        Box::pin(async move {
+            let Some(ctx) = meta else {
+                return Err(RpcCustomError::NodeUnhealthy {
+                    num_slots_behind: None,
+                }
+                .into());
+            };
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            ctx.plugin_commands_tx
+                .send(PluginCommand::Load {
+                    config_file,
+                    response_tx: tx,
+                })
+                .map_err(|_| Error::internal_error())?;
+            rx.recv()
+                .map_err(|_| Error::internal_error())?
+                .map(|info| info.plugin_name)
+                .map_err(|e| Error {
+                    code: ErrorCode::InternalError,
+                    message: e,
+                    data: None,
+                })
+        })
     }
 
     fn list_plugins(&self, meta: Self::Metadata) -> BoxFuture<Result<Vec<PluginInfo>>> {
-        todo!()
+        Box::pin(async move {
+            let Some(ctx) = meta else {
+                return Err(RpcCustomError::NodeUnhealthy {
+                    num_slots_behind: None,
+                }
+                .into());
+            };
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            ctx.plugin_commands_tx
+                .send(PluginCommand::List { response_tx: tx })
+                .map_err(|_| Error::internal_error())?;
+            Ok(rx.recv().map_err(|_| Error::internal_error())?)
+        })
     }
 
     fn start_time(&self, meta: Self::Metadata) -> Result<String> {

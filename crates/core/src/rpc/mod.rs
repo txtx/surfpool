@@ -17,6 +17,7 @@ use surfpool_types::{CheatcodeConfig, SimnetCommand, SimnetEvent, types::RpcConf
 use crate::{
     error::{SurfpoolError, SurfpoolResult},
     surfnet::{
+        PluginCommand,
         locker::SurfnetSvmLocker,
         remote::{SomeRemoteCtx, SurfnetRemoteClient},
         svm::SurfnetSvm,
@@ -50,6 +51,7 @@ pub struct RunloopContext {
     pub remote_rpc_client: Option<SurfnetRemoteClient>,
     pub rpc_config: RpcConfig,
     pub cheatcode_config: Arc<Mutex<CheatcodeConfig>>,
+    pub plugin_commands_tx: Sender<PluginCommand>,
 }
 
 pub struct SurfnetRpcContext<T> {
@@ -115,6 +117,7 @@ pub struct SurfpoolMiddleware {
     pub config: RpcConfig,
     pub remote_rpc_client: Option<SurfnetRemoteClient>,
     pub cheatcode_config: Arc<Mutex<CheatcodeConfig>>,
+    pub plugin_commands_tx: Sender<PluginCommand>,
 }
 
 impl SurfpoolMiddleware {
@@ -123,6 +126,7 @@ impl SurfpoolMiddleware {
         simnet_commands_tx: &Sender<SimnetCommand>,
         config: &RpcConfig,
         remote_rpc_client: &Option<SurfnetRemoteClient>,
+        plugin_commands_tx: Sender<PluginCommand>,
     ) -> Self {
         Self {
             surfnet_svm,
@@ -130,6 +134,7 @@ impl SurfpoolMiddleware {
             config: config.clone(),
             remote_rpc_client: remote_rpc_client.clone(),
             cheatcode_config: CheatcodeConfig::new(),
+            plugin_commands_tx,
         }
     }
 }
@@ -172,6 +177,7 @@ impl Middleware<Option<RunloopContext>> for SurfpoolMiddleware {
             remote_rpc_client: self.remote_rpc_client.clone(),
             rpc_config: self.config.clone(),
             cheatcode_config: self.cheatcode_config.clone(),
+            plugin_commands_tx: self.plugin_commands_tx.clone(),
         });
 
         // All surfnet cheatcodes will start with surfnet. If the request is a cheatcode, make sure it isn't disabled.
@@ -258,6 +264,7 @@ impl Middleware<Option<SurfpoolWebsocketMeta>> for SurfpoolWebsocketMiddleware {
             remote_rpc_client: self.surfpool_middleware.remote_rpc_client.clone(),
             rpc_config: self.surfpool_middleware.config.clone(),
             cheatcode_config: self.surfpool_middleware.cheatcode_config.clone(),
+            plugin_commands_tx: self.surfpool_middleware.plugin_commands_tx.clone(),
         };
         let session = meta
             .as_ref()

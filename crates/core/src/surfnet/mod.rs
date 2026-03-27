@@ -21,6 +21,7 @@ use solana_transaction_status::{EncodedConfirmedTransactionWithStatusMeta, Trans
 use svm::SurfnetSvm;
 
 use crate::{
+    PluginInfo,
     error::{SurfpoolError, SurfpoolResult},
     types::{GeyserAccountUpdate, TransactionWithStatusMeta},
 };
@@ -92,6 +93,26 @@ pub enum GeyserEvent {
     NotifyBlockMetadata(GeyserBlockMetadata),
     /// Notify plugins of entry execution.
     NotifyEntry(GeyserEntryInfo),
+}
+
+/// Commands sent from RPC to the geyser runloop for plugin management.
+pub enum PluginCommand {
+    Load {
+        config_file: String,
+        response_tx: Sender<Result<PluginInfo, String>>,
+    },
+    Unload {
+        name: String,
+        response_tx: Sender<Result<(), String>>,
+    },
+    Reload {
+        name: String,
+        config_file: String,
+        response_tx: Sender<Result<(), String>>,
+    },
+    List {
+        response_tx: Sender<Vec<PluginInfo>>,
+    },
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]

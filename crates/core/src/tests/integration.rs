@@ -56,7 +56,9 @@ use crate::{
     },
     runloops::start_local_surfnet_runloop,
     storage::tests::TestType,
-    surfnet::{SignatureSubscriptionType, locker::SurfnetSvmLocker, svm::SurfnetSvm},
+    surfnet::{
+        PluginCommand, SignatureSubscriptionType, locker::SurfnetSvmLocker, svm::SurfnetSvm,
+    },
     tests::helpers::get_free_port,
     types::{TimeTravelConfig, TransactionLoadedAddresses},
 };
@@ -782,6 +784,7 @@ async fn test_surfnet_estimate_compute_units(test_type: TestType) {
     // Manually construct RunloopContext
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -790,6 +793,7 @@ async fn test_surfnet_estimate_compute_units(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Test with None tag
@@ -1062,6 +1066,7 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -1070,6 +1075,7 @@ fn test_enable_and_disable_cheatcodes(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Test disable works properly
@@ -1362,6 +1368,7 @@ async fn test_get_transaction_profile(test_type: TestType) {
     // Manually construct RunloopContext
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -1370,6 +1377,7 @@ async fn test_get_transaction_profile(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Test 1: Profile a transaction with a tag and retrieve by UUID
@@ -1560,6 +1568,7 @@ fn test_register_and_get_idl_without_slot(test_type: TestType) {
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -1568,6 +1577,7 @@ fn test_register_and_get_idl_without_slot(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Test 1: Register IDL without slot
@@ -1614,6 +1624,7 @@ fn test_register_and_get_idl_with_slot(test_type: TestType) {
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -1622,6 +1633,7 @@ fn test_register_and_get_idl_with_slot(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Test 1: Register IDL with slot
@@ -1694,6 +1706,7 @@ async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType
 
     // Setup runloop context
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -1702,6 +1715,7 @@ async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Step 1: Register IDL v1 at slot_1
@@ -3373,6 +3387,7 @@ async fn test_get_local_signatures_without_limit(test_type: TestType) {
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
 
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -3381,6 +3396,7 @@ async fn test_get_local_signatures_without_limit(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     let payer = Keypair::new();
@@ -3476,6 +3492,7 @@ async fn test_get_local_signatures_with_limit(test_type: TestType) {
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
 
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -3484,6 +3501,7 @@ async fn test_get_local_signatures_with_limit(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     let payer = Keypair::new();
@@ -3681,6 +3699,7 @@ fn test_time_travel_resume_paused_clock(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, _) =
         boot_simnet(BlockProductionMode::Clock, Some(100), test_type);
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -3689,6 +3708,7 @@ fn test_time_travel_resume_paused_clock(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Get initial epoch info
@@ -3761,6 +3781,7 @@ fn test_time_travel_absolute_timestamp(test_type: TestType) {
         Some(slot_time.clone()),
         test_type,
     );
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -3770,6 +3791,7 @@ fn test_time_travel_absolute_timestamp(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     let clock = Clock {
@@ -3843,6 +3865,7 @@ fn test_time_travel_absolute_slot(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -3852,6 +3875,7 @@ fn test_time_travel_absolute_slot(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     let clock = Clock {
@@ -3919,6 +3943,7 @@ fn test_time_travel_absolute_epoch(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -3928,6 +3953,7 @@ fn test_time_travel_absolute_epoch(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     let clock = Clock {
@@ -4652,6 +4678,7 @@ fn test_reset_network_time_travel_timestamp(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -4660,6 +4687,7 @@ fn test_reset_network_time_travel_timestamp(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Calculate a target timestamp in the future
@@ -4703,6 +4731,7 @@ fn test_reset_network_time_travel_slot(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -4711,6 +4740,7 @@ fn test_reset_network_time_travel_slot(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Do an initial reset to ensure we start from slot 0
@@ -4758,6 +4788,7 @@ fn test_reset_network_time_travel_epoch(test_type: TestType) {
     let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -4766,6 +4797,7 @@ fn test_reset_network_time_travel_epoch(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Do an initial reset to ensure we start from epoch 0
@@ -7738,6 +7770,7 @@ async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
     // Create the locker and runloop context
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
@@ -7746,6 +7779,7 @@ async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
         cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Profile the transaction multiple times to ensure no state leakage

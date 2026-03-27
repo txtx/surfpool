@@ -43,16 +43,99 @@ type PluginConstructor = unsafe fn() -> *mut dyn GeyserPlugin;
 use txtx_addon_kit::helpers::fs::FileLocation;
 
 use crate::{
+    PluginInfo,
     rpc::{
         self, RunloopContext, SurfpoolMiddleware, SurfpoolWebsocketMeta,
         SurfpoolWebsocketMiddleware, accounts_data::AccountsData, accounts_scan::AccountsScan,
         admin::AdminRpc, bank_data::BankData, full::Full, minimal::Minimal,
         surfnet_cheatcodes::SurfnetCheatcodes, ws::Rpc,
     },
-    surfnet::{GeyserEvent, locker::SurfnetSvmLocker, remote::SurfnetRemoteClient},
+    surfnet::{GeyserEvent, PluginCommand, locker::SurfnetSvmLocker, remote::SurfnetRemoteClient},
 };
 
 const BLOCKHASH_SLOT_TTL: u64 = 75;
+
+/// A loaded geyser plugin with all metadata needed for lifecycle management.
+/// Field order matters: `plugin` must be declared before `_library` so it drops first,
+/// since the plugin's vtable points into the loaded dynamic library.
+pub(crate) struct ManagedPlugin {
+    pub(crate) uuid: crate::Uuid,
+    pub(crate) name: String,
+    pub(crate) plugin: Box<dyn GeyserPlugin>,
+    pub(crate) _library: Library,
+    pub(crate) config_path: String,
+}
+
+pub(crate) fn load_plugin_from_config(
+    config_file: &str,
+    is_reload: bool,
+) -> Result<ManagedPlugin, String> {
+    let plugin_manifest_location = FileLocation::from_path(PathBuf::from(config_file));
+    let config_content = plugin_manifest_location
+        .read_content_as_utf8()
+        .map_err(|e| format!("Unable to read plugin config '{}': {}", config_file, e))?;
+    let result: serde_json::Value = serde_json::from_str(&config_content)
+        .map_err(|e| format!("Unable to parse plugin manifest '{}': {}", config_file, e))?;
+
+    let plugin_dylib_path = result
+        .get("libpath")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| {
+            format!(
+                "Plugin config file should include a 'libpath' field: {}",
+                plugin_manifest_location
+            )
+        })?;
+
+    let mut plugin_dylib_location = plugin_manifest_location
+        .get_parent_location()
+        .expect("path invalid");
+    plugin_dylib_location
+        .append_path(plugin_dylib_path)
+        .expect("path invalid");
+
+    let (plugin, library) = unsafe {
+        let lib = Library::new(&plugin_dylib_location.to_string())
+            .map_err(|e| format!("Unable to load plugin {}: {}", plugin_dylib_location, e))?;
+        let constructor: Symbol<PluginConstructor> = lib
+            .get(b"_create_plugin")
+            .map_err(|e| format!("Plugin missing _create_plugin symbol: {}", e))?;
+        let plugin_raw = constructor();
+        (Box::from_raw(plugin_raw), lib)
+    };
+
+    let name = plugin.name().to_string();
+
+    let mut plugin = plugin;
+    plugin
+        .on_load(config_file, is_reload)
+        .map_err(|e| format!("Failed to call on_load for plugin '{}': {}", name, e))?;
+
+    let uuid = crate::Uuid::new_v4();
+
+    Ok(ManagedPlugin {
+        uuid,
+        name,
+        plugin,
+        _library: library,
+        config_path: config_file.to_string(),
+    })
+}
+
+pub(crate) fn unload_plugin_by_name(
+    name: &str,
+    managed_plugins: &mut Vec<ManagedPlugin>,
+) -> Result<(), String> {
+    let idx = managed_plugins
+        .iter()
+        .position(|p| p.name == name)
+        .ok_or_else(|| format!("Plugin '{}' not found", name))?;
+
+    let mut plugin = managed_plugins.remove(idx);
+    plugin.plugin.on_unload();
+    // plugin and _library are dropped here in correct order
+    Ok(())
+}
 
 /// Checks if a port is available for binding.
 fn check_port_availability(addr: SocketAddr, server_type: &str) -> Result<(), String> {
@@ -139,11 +222,14 @@ pub async fn start_local_surfnet_runloop(
 
     let simnet_events_tx_cc = svm_locker.simnet_events_tx();
 
+    let (plugin_commands_tx, plugin_commands_rx) = unbounded::<PluginCommand>();
+
     let (_rpc_handle, _ws_handle) = start_rpc_servers_runloop(
         &config,
         &simnet_commands_tx,
         svm_locker.clone(),
         &remote_rpc_client,
+        plugin_commands_tx,
     )
     .await?;
 
@@ -153,6 +239,7 @@ pub async fn start_local_surfnet_runloop(
         config.plugin_config_path.clone(),
         simnet_events_tx_cc.clone(),
         geyser_events_rx,
+        plugin_commands_rx,
     ) {
         Ok(_) => {}
         Err(e) => {
@@ -517,6 +604,7 @@ fn start_geyser_runloop(
     plugin_config_paths: Vec<PathBuf>,
     simnet_events_tx: Sender<SimnetEvent>,
     geyser_events_rx: Receiver<GeyserEvent>,
+    plugin_commands_rx: Receiver<PluginCommand>,
 ) -> Result<JoinHandle<Result<(), String>>, String> {
     let handle: JoinHandle<Result<(), String>> = hiro_system_kit::thread_named("Geyser Plugins Handler").spawn(move || {
         let mut indexing_enabled = false;
@@ -526,10 +614,7 @@ fn start_geyser_runloop(
         #[cfg(not(feature = "geyser_plugin"))]
         let mut plugin_manager = ();
 
-        let mut surfpool_plugin_manager: Vec<Box<dyn GeyserPlugin>> = vec![];
-
-        // Map between each plugin's UUID to its entry (index, plugin_name)
-        let mut plugin_map: HashMap<crate::Uuid, (usize, String)> = HashMap::new();
+        let mut managed_plugins: Vec<ManagedPlugin> = vec![];
 
         // helper to log errors that can't be propagated
         let log_error = |msg:String|{
@@ -544,6 +629,20 @@ fn start_geyser_runloop(
             let _ = simnet_events_tx.send(SimnetEvent::info(msg));
         };
 
+        // Load plugins from config paths at startup
+        for plugin_config_path in plugin_config_paths.iter() {
+            let config_file = plugin_config_path.to_string_lossy().to_string();
+            match load_plugin_from_config(&config_file, false) {
+                Ok(managed) => {
+                    indexing_enabled = true;
+                    log_info(format!("Loaded geyser plugin '{}'", managed.name));
+                    managed_plugins.push(managed);
+                }
+                Err(e) => {
+                    log_error(format!("Failed to load geyser plugin from '{}': {}", config_file, e));
+                }
+            }
+        }
 
         #[cfg(feature = "geyser_plugin")]
         for plugin_config_path in plugin_config_paths.into_iter() {
@@ -633,7 +732,7 @@ fn start_geyser_runloop(
                             message_hash: &transaction.message.hash(),
                         };
 
-                        for plugin in surfpool_plugin_manager.iter() {
+                        for plugin in managed_plugins.iter().map(|p| &*p.plugin) {
                             if let Err(e) = plugin.notify_transaction(ReplicaTransactionInfoVersions::V0_0_3(&transaction_replica), transaction_with_status_meta.slot) {
                                 log_error(format!("Failed to notify Geyser plugin of new transaction: {:?}", e))
                             };
@@ -666,7 +765,7 @@ fn start_geyser_runloop(
                             txn: sanitized_transaction.as_ref(),
                         };
 
-                        for plugin in surfpool_plugin_manager.iter() {
+                        for plugin in managed_plugins.iter().map(|p| &*p.plugin) {
                             if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, false) {
                                 log_error(format!("Failed to update account in Geyser plugin: {:?}", e));
                             }
@@ -700,7 +799,7 @@ fn start_geyser_runloop(
                         };
 
                         // Send startup account updates with is_startup=true
-                        for plugin in surfpool_plugin_manager.iter() {
+                        for plugin in managed_plugins.iter().map(|p| &*p.plugin) {
                             if let Err(e) = plugin.update_account(ReplicaAccountInfoVersions::V0_0_3(&account_replica), slot, true) {
                                 log_error(format!("Failed to send startup account update to Geyser plugin: {:?}", e));
                             }
@@ -714,7 +813,7 @@ fn start_geyser_runloop(
                         }
                     }
                     Ok(GeyserEvent::EndOfStartup) => {
-                        for plugin in surfpool_plugin_manager.iter() {
+                        for plugin in managed_plugins.iter().map(|p| &*p.plugin) {
                             if let Err(e) = plugin.notify_end_of_startup() {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify end of startup to Geyser plugin: {:?}", e)));
                             }
@@ -734,7 +833,7 @@ fn start_geyser_runloop(
                             crate::surfnet::GeyserSlotStatus::Rooted => SlotStatus::Rooted,
                         };
 
-                        for plugin in surfpool_plugin_manager.iter() {
+                        for plugin in managed_plugins.iter().map(|p| &*p.plugin) {
                             if let Err(e) = plugin.update_slot_status(slot, parent, &slot_status) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to update slot status in Geyser plugin: {:?}", e)));
                             }
@@ -765,7 +864,7 @@ fn start_geyser_runloop(
                             entry_count: block_metadata.entry_count,
                         };
 
-                        for plugin in surfpool_plugin_manager.iter() {
+                        for plugin in managed_plugins.iter().map(|p| &*p.plugin) {
                             if let Err(e) = plugin.notify_block_metadata(ReplicaBlockInfoVersions::V0_0_4(&block_info)) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify block metadata to Geyser plugin: {:?}", e)));
                             }
@@ -788,7 +887,7 @@ fn start_geyser_runloop(
                             starting_transaction_index: entry_info.starting_transaction_index,
                         };
 
-                        for plugin in surfpool_plugin_manager.iter() {
+                        for plugin in managed_plugins.iter().map(|p| &*p.plugin) {
                             if let Err(e) = plugin.notify_entry(ReplicaEntryInfoVersions::V0_0_2(&entry_replica)) {
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify entry to Geyser plugin: {:?}", e)));
                             }
@@ -800,6 +899,57 @@ fn start_geyser_runloop(
                                 let _ = simnet_events_tx.send(SimnetEvent::error(format!("Failed to notify entry to Geyser plugin: {:?}", e)));
                             }
                         }
+                    }
+                },
+                recv(plugin_commands_rx) -> cmd => match cmd {
+                    Err(_) => {
+                        break "Plugin command channel closed".to_string();
+                    }
+                    Ok(PluginCommand::Load { config_file, response_tx }) => {
+                        let result = match load_plugin_from_config(&config_file, false) {
+                            Ok(managed) => {
+                                indexing_enabled = true;
+                                let info = PluginInfo {
+                                    plugin_name: managed.name.clone(),
+                                    uuid: managed.uuid.to_string(),
+                                };
+                                log_info(format!("Loaded geyser plugin '{}'", managed.name));
+                                managed_plugins.push(managed);
+                                Ok(info)
+                            }
+                            Err(e) => {
+                                log_error(format!("Failed to load plugin: {}", e));
+                                Err(e)
+                            }
+                        };
+                        let _ = response_tx.send(result);
+                    }
+                    Ok(PluginCommand::Unload { name, response_tx }) => {
+                        let result = unload_plugin_by_name(&name, &mut managed_plugins);
+                        if result.is_ok() {
+                            log_info(format!("Unloaded geyser plugin '{}'", name));
+                        }
+                        let _ = response_tx.send(result);
+                    }
+                    Ok(PluginCommand::Reload { name, config_file, response_tx }) => {
+                        let result = unload_plugin_by_name(&name, &mut managed_plugins)
+                            .and_then(|_| {
+                                let managed = load_plugin_from_config(&config_file, true)?;
+                                log_info(format!("Reloaded geyser plugin '{}'", managed.name));
+                                managed_plugins.push(managed);
+                                Ok(())
+                            });
+                        if let Err(ref e) = result {
+                            log_error(format!("Failed to reload plugin '{}': {}", name, e));
+                        }
+                        let _ = response_tx.send(result);
+                    }
+                    Ok(PluginCommand::List { response_tx }) => {
+                        let infos = managed_plugins.iter().map(|p| PluginInfo {
+                            plugin_name: p.name.clone(),
+                            uuid: p.uuid.to_string(),
+                        }).collect();
+                        let _ = response_tx.send(infos);
                     }
                 }
             }
@@ -814,6 +964,7 @@ async fn start_rpc_servers_runloop(
     simnet_commands_tx: &Sender<SimnetCommand>,
     svm_locker: SurfnetSvmLocker,
     remote_rpc_client: &Option<SurfnetRemoteClient>,
+    plugin_commands_tx: Sender<PluginCommand>,
 ) -> Result<(JoinHandle<()>, JoinHandle<()>), String> {
     let rpc_addr: SocketAddr = config
         .rpc
@@ -836,6 +987,7 @@ async fn start_rpc_servers_runloop(
         simnet_commands_tx,
         &config.rpc,
         remote_rpc_client,
+        plugin_commands_tx,
     );
 
     let rpc_handle =
@@ -879,10 +1031,6 @@ async fn start_http_rpc_server_runloop(
     io.extend_with(rpc::accounts_scan::SurfpoolAccountsScanRpc.to_delegate());
     io.extend_with(rpc::bank_data::SurfpoolBankDataRpc.to_delegate());
     io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());
-
-    if !config.plugin_config_path.is_empty() {
-        io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());
-    }
 
     let _handle = hiro_system_kit::thread_named("RPC Handler")
         .spawn(move || {
@@ -958,6 +1106,7 @@ async fn start_ws_rpc_server_runloop(
                             remote_rpc_client: middleware.remote_rpc_client.clone(),
                             rpc_config: middleware.config.clone(),
                             cheatcode_config: middleware.cheatcode_config.clone(),
+                            plugin_commands_tx: middleware.plugin_commands_tx.clone(),
                         };
                         Some(SurfpoolWebsocketMeta::new(
                             runloop_context,
