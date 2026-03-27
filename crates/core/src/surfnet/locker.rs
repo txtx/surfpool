@@ -273,24 +273,7 @@ impl SurfnetSvmLocker {
     /// Retrieves a local account from the SVM cache, returning a contextualized result.
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
-            let result = svm_reader.inner.get_account_result(pubkey).unwrap();
-
-            if result.is_none() {
-                return match svm_reader.get_account_from_feature_set(pubkey) {
-                    Some(account) => {
-                        GetAccountResult::FoundAccount(
-                            *pubkey, account,
-                            // mark this as an account to insert into the SVM, since the feature is activated and LiteSVM doesn't
-                            // automatically insert activated feature accounts
-                            // TODO: mark as false once https://github.com/LiteSVM/litesvm/pull/308 is released
-                            true,
-                        )
-                    }
-                    None => GetAccountResult::None(*pubkey),
-                };
-            } else {
-                return result;
-            }
+            return svm_reader.inner.get_account_result(pubkey).unwrap();
         })
     }
 
@@ -357,19 +340,8 @@ impl SurfnetSvmLocker {
             let mut accounts = vec![];
 
             for pubkey in pubkeys {
-                let mut result = svm_reader.inner.get_account_result(pubkey).unwrap();
-                if result.is_none() {
-                    result = match svm_reader.get_account_from_feature_set(pubkey) {
-                        Some(account) => GetAccountResult::FoundAccount(
-                            *pubkey, account,
-                            // mark this as an account to insert into the SVM, since the feature is activated and LiteSVM doesn't
-                            // automatically insert activated feature accounts
-                            // TODO: mark as false once https://github.com/LiteSVM/litesvm/pull/308 is released
-                            true,
-                        ),
-                        None => GetAccountResult::None(*pubkey),
-                    }
-                };
+                let result = svm_reader.inner.get_account_result(pubkey).unwrap();
+                if result.is_none() {};
                 accounts.push(result);
             }
             accounts
