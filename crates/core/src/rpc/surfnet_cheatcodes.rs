@@ -20,7 +20,7 @@ use surfpool_types::{
     AccountSnapshot, CheatcodeControlConfig, CheatcodeFilter, ClockCommand, ExportSnapshotConfig,
     GetStreamedAccountsResponse, GetSurfnetInfoResponse, Idl, OfflineAccountConfig,
     ResetAccountConfig, RpcProfileResultConfig, Scenario, SimnetCommand, SimnetEvent,
-    StreamAccountConfig, UiKeyedProfileResult,
+    StreamAccountConfig, StreamAccountsEntry, UiKeyedProfileResult,
     types::{AccountUpdate, SetSomeAccount, SupplyUpdate, TokenAccountUpdate, UuidOrSignature},
 };
 
@@ -1016,6 +1016,52 @@ pub trait SurfnetCheatcodes {
         meta: Self::Metadata,
         pubkey_str: String,
         config: Option<StreamAccountConfig>,
+    ) -> Result<RpcResponse<()>>;
+
+    /// A cheat code to simulate account streaming for multiple accounts at once.
+    /// When a transaction is processed, the accounts that are accessed are downloaded from the datasource and cached in the SVM.
+    /// With this method, you can simulate the streaming of multiple accounts by providing a list of entries.
+    ///
+    /// ## Parameters
+    /// - `accounts`: A list of `StreamAccountsEntry` objects, each containing a `pubkey` (base-58 encoded) and an optional `includeOwnedAccounts` boolean.
+    ///
+    /// ## Returns
+    /// An `RpcResponse<()>` indicating whether the account stream registrations were successful.
+    ///
+    /// ## Example Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "surfnet_streamAccounts",
+    ///   "params": [
+    ///     [
+    ///       { "pubkey": "4EXSeLGxVBpAZwq7vm6evLdewpcvE2H56fpqL2pPiLFa", "includeOwnedAccounts": true },
+    ///       { "pubkey": "7nYBm5mk15oDNewVjNFmEqJ9VgMvT4F74UVoeYDCpScd" }
+    ///     ]
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": {
+    ///     "context": {
+    ///       "slot": 123456789,
+    ///       "apiVersion": "2.3.8"
+    ///     },
+    ///     "value": null
+    ///   },
+    ///   "id": 1
+    /// }
+    /// ```
+    #[rpc(meta, name = "surfnet_streamAccounts")]
+    fn stream_accounts(
+        &self,
+        meta: Self::Metadata,
+        accounts: Vec<StreamAccountsEntry>,
     ) -> Result<RpcResponse<()>>;
 
     /// A cheat code to retrieve the streamed accounts.
@@ -2017,6 +2063,23 @@ impl SurfnetCheatcodes for SurfnetCheatcodesRpc {
         let config = config.unwrap_or_default();
         let include_owned_accounts = config.include_owned_accounts.unwrap_or_default();
         svm_locker.stream_account(pubkey, include_owned_accounts)?;
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
+            value: (),
+        })
+    }
+
+    fn stream_accounts(
+        &self,
+        meta: Self::Metadata,
+        accounts: Vec<StreamAccountsEntry>,
+    ) -> Result<RpcResponse<()>> {
+        let svm_locker = meta.get_svm_locker()?;
+        for entry in accounts {
+            let pubkey = verify_pubkey(&entry.pubkey)?;
+            let include_owned_accounts = entry.include_owned_accounts.unwrap_or_default();
+            svm_locker.stream_account(pubkey, include_owned_accounts)?;
+        }
         Ok(RpcResponse {
             context: RpcResponseContext::new(svm_locker.get_latest_absolute_slot()),
             value: (),
