@@ -2932,7 +2932,7 @@ async fn test_profile_transaction_insufficient_funds(test_type: TestType) {
     // Set up test accounts with insufficient funds
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
-    let insufficient_funds = 10000;
+    let insufficient_funds = LAMPORTS_PER_SOL;
     let large_transfer = LAMPORTS_PER_SOL * 10;
 
     svm_locker
@@ -3506,7 +3506,7 @@ async fn test_get_local_signatures_with_limit(test_type: TestType) {
 
     let payer = Keypair::new();
     let _recipient = Keypair::new();
-    let lamports_to_send = 1_000_000;
+    let lamports_to_send = 10_000_000;
 
     svm_locker_for_context
         .airdrop(&payer.pubkey(), lamports_to_send * 10)
@@ -5556,7 +5556,7 @@ async fn test_ws_signature_subscribe(subscription_type: SignatureSubscriptionTyp
     // create a test transaction
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
-    let lamports_to_send = 100_000;
+    let lamports_to_send = 1_000_000;
     svm_locker
         .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
         .unwrap()
@@ -5631,12 +5631,13 @@ async fn test_ws_signature_subscribe_failed_transaction(test_type: TestType) {
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
     svm_locker
-        .airdrop(&payer.pubkey(), 10_000)
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
         .unwrap()
-        .unwrap(); // airdrop a very small amount.unwrap()
+        .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, LAMPORTS_PER_SOL); // Try to send more than we have
+    let transfer_ix =
+        system_instruction::transfer(&payer.pubkey(), &recipient, LAMPORTS_PER_SOL * 2); // Try to send more than we have
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
@@ -5699,7 +5700,7 @@ async fn test_ws_signature_subscribe_multiple_subscribers(test_type: TestType) {
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
@@ -5777,7 +5778,7 @@ async fn test_ws_signature_subscribe_before_transaction_exists(test_type: TestTy
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
@@ -5847,7 +5848,7 @@ async fn test_ws_account_subscribe_balance_change(test_type: TestType) {
 
     // make a transaction to change the account balance
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
@@ -5873,7 +5874,7 @@ async fn test_ws_account_subscribe_balance_change(test_type: TestType) {
     let updated_account = account_update.unwrap();
     assert_eq!(
         updated_account.lamports,
-        LAMPORTS_PER_SOL - 100_000 - 5000, // original - transfer amount - fees
+        LAMPORTS_PER_SOL - 1_000_000 - 5000, // original - transfer amount - fees
         "Account balance should be updated"
     );
     println!(
@@ -5911,7 +5912,7 @@ async fn test_ws_account_subscribe_multiple_changes(test_type: TestType) {
     for i in 0..3 {
         let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
 
-        let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+        let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
         let tx = Transaction::new_signed_with_payer(
             &[transfer_ix],
             Some(&payer.pubkey()),
@@ -5982,7 +5983,7 @@ async fn test_ws_account_subscribe_multiple_subscribers(test_type: TestType) {
 
     // trigger a change with a transfer (not airdrop)
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&sender.pubkey(), &payer.pubkey(), 100_000);
+    let transfer_ix = system_instruction::transfer(&sender.pubkey(), &payer.pubkey(), 1_000_000);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&sender.pubkey()),
@@ -6045,7 +6046,7 @@ async fn test_ws_account_subscribe_new_account_creation(test_type: TestType) {
 
     // create the account with a transfer
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &new_account, 100_000);
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &new_account, 1_000_000);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
@@ -6074,7 +6075,7 @@ async fn test_ws_account_subscribe_new_account_creation(test_type: TestType) {
 
     let created_account = account_update.unwrap();
     assert_eq!(
-        created_account.lamports, 100_000,
+        created_account.lamports, 1_000_000,
         "New account should have correct balance"
     );
     println!(
@@ -6101,7 +6102,7 @@ async fn test_ws_account_subscribe_account_closure(test_type: TestType) {
 
     // give the account some funds
     svm_locker
-        .airdrop(&account_to_close.pubkey(), 10_000)
+        .airdrop(&account_to_close.pubkey(), LAMPORTS_PER_SOL)
         .unwrap()
         .unwrap();
 
@@ -6111,7 +6112,11 @@ async fn test_ws_account_subscribe_account_closure(test_type: TestType) {
 
     // close the account by sending all funds minus fee
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let close_ix = system_instruction::transfer(&account_to_close.pubkey(), &recipient, 5_000);
+    let close_ix = system_instruction::transfer(
+        &account_to_close.pubkey(),
+        &recipient,
+        LAMPORTS_PER_SOL - 5_000,
+    );
     let tx = Transaction::new_signed_with_payer(
         &[close_ix],
         Some(&account_to_close.pubkey()),
@@ -6302,7 +6307,7 @@ async fn test_ws_logs_subscribe_all_transactions(test_type: TestType) {
 
     // create and process a test transaction
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
@@ -6335,7 +6340,8 @@ async fn test_ws_logs_subscribe_all_transactions(test_type: TestType) {
     );
     assert!(
         logs_response.err.is_none(),
-        "Transaction should succeed without error"
+        "Transaction should succeed without error, got error: {}",
+        logs_response.err.unwrap()
     );
     assert!(
         !logs_response.logs.is_empty(),
@@ -6380,7 +6386,7 @@ async fn test_ws_logs_subscribe_mentions_account(test_type: TestType) {
 
     // create transaction that uses system program
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
@@ -6450,7 +6456,7 @@ async fn test_ws_logs_subscribe_confirmed_commitment(test_type: TestType) {
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
@@ -6517,7 +6523,7 @@ async fn test_ws_logs_subscribe_finalized_commitment(test_type: TestType) {
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
@@ -6577,7 +6583,10 @@ async fn test_ws_logs_subscribe_failed_transaction(test_type: TestType) {
     // create test accounts
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
-    svm_locker.airdrop(&payer.pubkey(), 5_000).unwrap().unwrap();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
 
     // subscribe to all logs
     let logs_rx = svm_locker
@@ -6585,7 +6594,8 @@ async fn test_ws_logs_subscribe_failed_transaction(test_type: TestType) {
 
     // create and process a transaction that will fail (insufficient funds)
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, LAMPORTS_PER_SOL);
+    let transfer_ix =
+        system_instruction::transfer(&payer.pubkey(), &recipient, LAMPORTS_PER_SOL * 2);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
@@ -6657,7 +6667,7 @@ async fn test_ws_logs_subscribe_multiple_subscribers(test_type: TestType) {
         .unwrap();
 
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
@@ -6725,7 +6735,7 @@ async fn test_ws_logs_subscribe_logs_content(test_type: TestType) {
 
     // create and process a transaction
     let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
-    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 100_000);
+    let transfer_ix = system_instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
     let tx = Transaction::new_signed_with_payer(
         &[transfer_ix],
         Some(&payer.pubkey()),
