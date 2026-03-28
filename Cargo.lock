@@ -11297,6 +11297,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "surfpool-sdk"
+version = "1.1.1"
+dependencies = [
+ "crossbeam-channel",
+ "hiro-system-kit",
+ "log 0.4.29",
+ "serde_json",
+ "solana-account 3.3.0",
+ "solana-client",
+ "solana-clock 3.0.0",
+ "solana-commitment-config",
+ "solana-hash 3.1.0",
+ "solana-keypair",
+ "solana-message 3.0.1",
+ "solana-pubkey 3.0.0",
+ "solana-rpc-client",
+ "solana-signature",
+ "solana-signer",
+ "solana-system-interface 2.0.0",
+ "solana-transaction",
+ "spl-associated-token-account-interface",
+ "surfpool-core",
+ "surfpool-types",
+ "thiserror 2.0.17",
+ "tokio",
+]
+
+[[package]]
 name = "surfpool-studio-ui"
 version = "0.1.1"
 dependencies = [

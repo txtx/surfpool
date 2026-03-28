@@ -1,0 +1,41 @@
+[package]
+name = "surfpool-sdk"
+description = "SDK for embedding Surfpool in Rust integration tests"
+version = { workspace = true }
+readme = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+crossbeam-channel = { workspace = true }
+hiro-system-kit = { workspace = true }
+log = { workspace = true }
+solana-account = { workspace = true }
+solana-client = { workspace = true }
+solana-clock = { workspace = true }
+solana-keypair = { workspace = true }
+solana-pubkey = { workspace = true }
+solana-rpc-client = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+spl-associated-token-account-interface = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+surfpool-core = { workspace = true }
+surfpool-types = { workspace = true }
+
+[dev-dependencies]
+solana-system-interface = { workspace = true }
+solana-transaction = { workspace = true }
+solana-message = { workspace = true }
+solana-hash = { workspace = true }
+solana-commitment-config = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
