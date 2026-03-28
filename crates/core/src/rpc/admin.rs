@@ -3,7 +3,7 @@ use std::time::Duration;
 use jsonrpc_core::{BoxFuture, Result};
 use jsonrpc_derive::rpc;
 use solana_client::rpc_custom_error::RpcCustomError;
-use surfpool_types::{SimnetCommand, SimnetEvent, SurfpoolStatus, WsSubscriptions};
+use surfpool_types::{SimnetCommand, SimnetEvent};
 use txtx_addon_network_svm_types::subgraph::PluginConfig;
 use uuid::Uuid;
 

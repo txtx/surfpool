@@ -372,10 +372,6 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return e.into(),
         };
 
-        #[cfg(feature = "prometheus")]
-        crate::telemetry::metrics()
-            .record_rpc_request("getAccountInfo", rpc_start.elapsed().as_secs_f64() * 1000.0);
-
         Box::pin(async move {
             let SvmAccessContext {
                 slot,
@@ -385,7 +381,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
             #[cfg(feature = "prometheus")]
             crate::telemetry::metrics()
-                .record_rpc_request("getAccountInfo", rpc_start.elapsed().as_secs_f64() * 1000.0);
+                .record_rpc_request("getAccountInfo", rpc_start.elapsed().as_millis() as f64);
 
             svm_locker.write_account_update(account_update.clone());
 
@@ -452,7 +448,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             #[cfg(feature = "prometheus")]
             crate::telemetry::metrics().record_rpc_request(
                 "getMultipleAccounts",
-                rpc_start.elapsed().as_secs_f64() * 1000.0,
+                rpc_start.elapsed().as_millis() as f64,
             );
 
             svm_locker.write_multiple_account_updates(&account_updates);

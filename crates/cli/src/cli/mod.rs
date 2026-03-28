@@ -274,7 +274,7 @@ pub struct StartSimnet {
     /// Prometheus metrics endpoint address
     #[arg(
         long = "metrics-addr",
-        default_value = "0.0.0.0:9000",
+        default_value = "127.0.0.1:9000",
         env = "SURFPOOL_METRICS_ADDR"
     )]
     pub metrics_addr: String,

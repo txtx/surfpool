@@ -292,15 +292,7 @@ impl SurfnetSvmLocker {
             let is_closed = self.get_closed_accounts().contains(pubkey);
 
             if !is_closed {
-                #[cfg(feature = "prometheus")]
-                let fetch_start = std::time::Instant::now();
-
                 let remote_account = client.get_account(pubkey, commitment_config).await?;
-                // Record how long mainnet fetch took
-                #[cfg(feature = "prometheus")]
-                crate::telemetry::metrics()
-                    .record_remote_fetch(fetch_start.elapsed().as_secs_f64() * 1000.0);
-
                 Ok(result.with_new_value(remote_account))
             } else {
                 Ok(result)
@@ -409,17 +401,11 @@ impl SurfnetSvmLocker {
             "Missing accounts will be fetched: {}",
             missing_accounts.iter().join(", ")
         );
-
-        #[cfg(feature = "prometheus")]
-        let fetch_start = std::time::Instant::now();
-
         // Fetch missing accounts from remote
         let remote_results = client
             .get_multiple_accounts(&missing_accounts, commitment_config)
             .await?;
-        #[cfg(feature = "prometheus")]
-        crate::telemetry::metrics()
-            .record_remote_fetch(fetch_start.elapsed().as_secs_f64() * 1000.0);
+
         // Build map of pubkey -> remote result for O(1) lookup
         let remote_map: HashMap<Pubkey, GetAccountResult> = missing_accounts
             .into_iter()

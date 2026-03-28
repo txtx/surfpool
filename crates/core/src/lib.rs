@@ -17,6 +17,7 @@ pub mod runloops;
 pub mod scenarios;
 pub mod storage;
 pub mod surfnet;
+#[cfg(feature = "prometheus")]
 pub mod telemetry;
 pub mod types;
 

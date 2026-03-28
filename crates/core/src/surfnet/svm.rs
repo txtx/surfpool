@@ -84,7 +84,6 @@ use crate::{
     surfnet::{
         LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
     },
-    telemetry::*,
     types::{
         GeyserAccountUpdate, MintAccount, SerializableAccountAdditionalData,
         SurfnetTransactionStatus, SyntheticBlockhash, TokenAccount, TransactionWithStatusMeta,
@@ -1530,9 +1529,6 @@ impl SurfnetSvm {
         cu_analysis_enabled: bool,
         sigverify: bool,
     ) -> TransactionResult {
-        #[cfg(feature = "prometheus")]
-        let tx_start = std::time::Instant::now();
-
         if sigverify {
             self.sigverify(&tx)?;
         }
@@ -1568,14 +1564,8 @@ impl SurfnetSvm {
         }
 
         match self.inner.send_transaction(tx.clone()) {
-            Ok(res) => {
-                #[cfg(feature = "prometheus")]
-                metrics().record_transaction(true, tx_start.elapsed().as_secs_f64() * 1000.0);
-                Ok(res)
-            }
+            Ok(res) => Ok(res),
             Err(tx_failure) => {
-                #[cfg(feature = "prometheus")]
-                metrics().record_transaction(false, tx_start.elapsed().as_secs_f64() * 1000.0);
                 let transaction_meta =
                     convert_transaction_metadata_from_canonical(&tx_failure.meta);
 

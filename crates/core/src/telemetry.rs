@@ -2,12 +2,8 @@
 //!
 //! Feature `prometheus` enables a `/metrics` HTTP endpoint
 
-#[cfg(feature = "prometheus")]
 mod instrumented {
-    use std::{
-        sync::{Once, OnceLock},
-        time::Instant,
-    };
+    use std::sync::{Once, OnceLock};
 
     use opentelemetry::{
         KeyValue,
@@ -195,10 +191,8 @@ mod instrumented {
     }
 }
 
-#[cfg(feature = "prometheus")]
 pub use instrumented::*;
 
-#[cfg(feature = "prometheus")]
 pub fn init_from_config(enabled: bool, bind_addr: &str) -> Result<(), String> {
     if !enabled {
         log::info!("Prometheus metrics disabled");
