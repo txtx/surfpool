@@ -63,7 +63,25 @@ pub async fn handle_start_local_surfnet_command(
     let (mut surfnet_svm, simnet_events_rx, geyser_events_rx) =
         SurfnetSvm::new_with_db(cmd.db.as_deref(), &cmd.surfnet_id)
             .map_err(|e| format!("Failed to initialize Surfnet SVM: {}", e))?;
-
+    #[cfg(feature = "prometheus")]
+    {
+        if cmd.metrics_enabled {
+            match surfpool_core::telemetry::init_from_config(cmd.metrics_enabled, &cmd.metrics_addr)
+            {
+                Err(e) => {
+                    let _ = surfnet_svm
+                        .simnet_events_tx
+                        .send(SimnetEvent::warn(format!("Metrics init failed: {}", e)));
+                }
+                Ok(_) => {
+                    let _ = surfnet_svm.simnet_events_tx.send(SimnetEvent::info(format!(
+                        "Metrics available at http://{}/metrics",
+                        cmd.metrics_addr
+                    )));
+                }
+            }
+        }
+    }
     // Apply feature configuration from CLI flags
     let feature_config = cmd.feature_config();
     surfnet_svm.apply_feature_config(&feature_config);

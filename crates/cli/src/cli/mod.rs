@@ -259,6 +259,20 @@ pub struct StartSimnet {
     /// When multiple files are provided, later files override earlier ones for duplicate keys.
     #[arg(long = "snapshot")]
     pub snapshot: Vec<String>,
+    /// Enable Prometheus metrics endpoint
+    #[cfg(feature = "prometheus")]
+    /// Enable Prometheus metrics endpoint
+    #[arg(long = "metrics-enabled", env = "SURFPOOL_METRICS_ENABLED")]
+    pub metrics_enabled: bool,
+
+    #[cfg(feature = "prometheus")]
+    /// Prometheus metrics endpoint address
+    #[arg(
+        long = "metrics-addr",
+        default_value = "127.0.0.1:9000",
+        env = "SURFPOOL_METRICS_ADDR"
+    )]
+    pub metrics_addr: String,
     /// Skip signature verification for all transactions (eg. surfpool start --skip-signature-verification)
     #[clap(long = "skip-signature-verification", action=ArgAction::SetTrue, default_value = "false")]
     pub skip_signature_verification: bool,

@@ -100,7 +100,12 @@ anchor-lang-idl = { workspace = true }
 txtx-addon-kit = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }
 txtx-addon-network-svm = { workspace = true }
-
+# Prometheus metrics - declare normally, control via feature
+opentelemetry = { version = "0.28", default-features = false, features = ["metrics"], optional = true }
+opentelemetry_sdk = { version = "0.28", default-features = false, features = ["rt-tokio", "metrics"], optional = true }
+opentelemetry-prometheus = { version = "0.28", default-features = false, optional = true }
+prometheus = { version = "0.13", default-features = false, optional = true }
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1"], optional = true }
 
 [dev-dependencies]
 test-case = { workspace = true }
@@ -115,3 +120,4 @@ postgres = ["surfpool-db/postgres"]
 ignore_tests_ci = []
 geyser_plugin = []  # Disabled: solana-geyser-plugin-manager conflicts with litesvm 0.9.1
 register-tracing = ["litesvm/register-tracing"]
+prometheus = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:axum"]

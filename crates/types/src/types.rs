@@ -1,3 +1,5 @@
+#[cfg(feature = "prometheus")]
+use std::time::SystemTime;
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, HashMap},
@@ -585,7 +587,7 @@ pub struct SanitizedConfig {
     pub workspace: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SurfpoolConfig {
     pub simnets: Vec<SimnetConfig>,
     pub rpc: RpcConfig,
@@ -594,7 +596,7 @@ pub struct SurfpoolConfig {
     pub plugin_config_path: Vec<PathBuf>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SimnetConfig {
     pub offline_mode: bool,
     pub remote_rpc_url: Option<String>,
@@ -654,14 +656,14 @@ impl SimnetConfig {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SubgraphConfig {}
 
 pub const DEFAULT_GOSSIP_PORT: u16 = 8001;
 pub const DEFAULT_TPU_PORT: u16 = 8003;
 pub const DEFAULT_TPU_QUIC_PORT: u16 = 8004;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RpcConfig {
     pub bind_host: String,
     pub bind_port: u16,
@@ -693,7 +695,7 @@ impl Default for RpcConfig {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StudioConfig {
     pub bind_host: String,
     pub bind_port: u16,
@@ -1233,6 +1235,31 @@ impl RunbookExecutionStatusReport {
         self.completed_at = Some(Local::now().timestamp() as u32);
         self.errors = error;
     }
+}
+/// WebSocket subscription counts
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct WsSubscriptions {
+    pub signatures: usize,
+    pub accounts: usize,
+    pub slots: usize,
+    pub logs: usize,
+}
+
+/// Surfpool node status information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SurfpoolStatus {
+    pub slot: u64,
+    pub epoch: u64,
+    pub slot_index: u64,
+    pub transactions_count: u64,
+    pub transactions_processed: u64,
+    pub uptime_ms: u64,
+    pub ws_subscriptions: WsSubscriptions,
+}
+
+#[cfg(feature = "prometheus")]
+fn default_prometheus_addr() -> String {
+    "0.0.0.0:9000".to_string()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
