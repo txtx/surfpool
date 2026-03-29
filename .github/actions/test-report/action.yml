@@ -1,4 +1,4 @@
-name: Surfpool Test Report
+name: Surfpool Report
 description: >
   Post a single PR comment with code coverage table and a link to the
   Surfpool transaction report on GitHub Pages.
@@ -70,7 +70,7 @@ runs:
       if: inputs.report-path != ''
       uses: actions/upload-artifact@v4
       with:
-        name: surfpool-test-report
+        name: surfpool-report
         path: ${{ inputs.report-path }}
 
     # ── Build the unified comment ──
@@ -135,7 +135,7 @@ runs:
             echo ""
             echo "---"
             echo ""
-            echo "**[Surfpool Test Report](https://${REPO_OWNER}.github.io/${REPO_NAME}/${PAGES_PATH}/)** — transaction profiling, account state diffs, byte comparison"
+            echo "**[Surfpool Report](https://${REPO_OWNER}.github.io/${REPO_NAME}/${PAGES_PATH}/)** — transaction profiling, account state diffs, byte comparison"
           fi
 
           echo "EOFCOMMENT"

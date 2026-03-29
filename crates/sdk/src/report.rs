@@ -163,7 +163,7 @@ impl SurfpoolReport {
         };
 
         println!(
-            "Surfpool report: {} instances, {} transactions ({} failed)",
+            "Surfpool: {} instances, {} transactions ({} failed)",
             report.instances.len(),
             report.total_transactions(),
             report.failed_transactions()
@@ -185,7 +185,7 @@ fn generate_standalone_html(report_json: &str) -> String {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Surfpool Test Report</title>
+<title>Surfpool Report</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script id="__SURFPOOL_REPORT_DATA__" type="application/json">{report_json}</script>
 <style>
@@ -362,7 +362,7 @@ function cuMiniBar(tx){{
 }}
 
 app.innerHTML=`
-<div class="hdr"><div><h1><span class="accent">surfpool</span> test report</h1><div class="sub">${{R.instances.length}} test${{R.instances.length!==1?'s':''}} &middot; ${{totTx}} transaction${{totTx!==1?'s':''}} &middot; ${{R.generated_at}}</div></div></div>
+<div class="hdr"><div><h1><span class="accent">surfpool</span> report</h1><div class="sub">${{R.instances.length}} test${{R.instances.length!==1?'s':''}} &middot; ${{totTx}} transaction${{totTx!==1?'s':''}} &middot; ${{R.generated_at}}</div></div></div>
 <div class="stats">
   <div class="st"><div class="l">Tests</div><div class="v c">${{R.instances.length}}</div></div>
   <div class="st"><div class="l">Transactions</div><div class="v">${{totTx}}</div></div>
