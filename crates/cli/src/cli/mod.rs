@@ -1,4 +1,12 @@
-use std::{collections::BTreeMap, env, fs::File, path::PathBuf, process, str::FromStr};
+use std::{
+    collections::BTreeMap,
+    env,
+    fs::File,
+    panic::{AssertUnwindSafe, catch_unwind, set_hook, take_hook},
+    path::PathBuf,
+    process,
+    str::FromStr,
+};
 
 use chrono::Local;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
@@ -7,7 +15,7 @@ use fern::colors::{Color, ColoredLevelConfig};
 #[cfg(not(target_os = "windows"))]
 use fork::{Fork, daemon};
 use hiro_system_kit::{self, Logger};
-use log::{error, info};
+use log::info;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::{EncodableKey, Signer};
@@ -17,13 +25,12 @@ use surfpool_types::{
     DEFAULT_DEVNET_RPC_URL, DEFAULT_GOSSIP_PORT, DEFAULT_MAINNET_RPC_URL, DEFAULT_NETWORK_HOST,
     DEFAULT_RPC_PORT, DEFAULT_SLOT_TIME_MS, DEFAULT_TESTNET_RPC_URL, DEFAULT_TPU_PORT,
     DEFAULT_TPU_QUIC_PORT, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, SimnetEvent, StudioConfig,
-    SubgraphConfig, SurfpoolConfig, SvmFeature, SvmFeatureConfig,
+    SubgraphConfig, SurfpoolConfig, SvmFeatureConfig, parse_feature_pubkey,
 };
-use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
 use txtx_gql::kit::{helpers::fs::FileLocation, types::frontend::LogLevel};
 
-use crate::{cloud::CloudStartCommand, runbook::handle_execute_runbook_command};
+use crate::runbook::handle_execute_runbook_command;
 
 mod simnet;
 
@@ -34,10 +41,6 @@ pub struct Context {
     pub tracer: bool,
 }
 
-pub const DEFAULT_ID_SVC_URL: &str = "https://id.txtx.run/v1";
-pub const DEFAULT_CLOUD_URL: &str = "https://cloud.txtx.run";
-pub const DEFAULT_SVM_GQL_URL: &str = "https://svm-cloud.gql.txtx.run/v1/graphql";
-pub const DEFAULT_SVM_CLOUD_API_URL: &str = "https://svm-cloud-api.txtx.run/v1/surfnets";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
 pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
 
@@ -121,9 +124,6 @@ enum Command {
     /// List runbooks present in the current directory
     #[clap(name = "ls", bin_name = "ls")]
     List(ListRunbooks),
-    /// Txtx cloud commands
-    #[clap(subcommand, name = "cloud", bin_name = "cloud")]
-    Cloud(CloudCommand),
     /// Start MCP server
     #[clap(name = "mcp", bin_name = "mcp")]
     Mcp,
@@ -181,13 +181,16 @@ pub struct StartSimnet {
     /// List of keypair paths to airdrop (eg. surfpool start --airdrop-keypair-path ~/.config/solana/id.json --airdrop-keypair-path ~/.config/solana/id2.json)
     #[arg(long = "airdrop-keypair-path", short = 'k', default_value = DEFAULT_SOLANA_KEYPAIR_PATH.as_str())]
     pub airdrop_keypair_path: Vec<String>,
-    /// Watch programs in your `target/deploy` folder, and automatically re-execute the deployment runbook when the `.so` files change. (eg. surfpool start --watch)
+    /// Watch programs in your artifacts folder (default: `target/deploy`), and automatically re-execute the deployment runbook when the `.so` files change. (eg. surfpool start --watch)
     #[clap(long = "watch", action=ArgAction::SetTrue, default_value = "false")]
     pub watch: bool,
+    /// Override the path where .so program artifacts are loaded from (default: target/deploy). (eg. surfpool start --artifacts-path ./target/deploy/debug)
+    #[arg(long = "artifacts-path")]
+    pub artifacts_path: Option<String>,
     /// List of geyser plugins to load (eg. surfpool start --geyser-plugin-config plugin1.json --geyser-plugin-config plugin2.json)
     #[arg(long = "geyser-plugin-config", short = 'g')]
     pub plugin_config_path: Vec<String>,
-    /// Subgraph database connection URL (default to sqlite ":memory:", also supports postgres: "postgres://postgres:posgres@e127.0.0.1:5432/surfpool")
+    /// This flag has been deprecated.
     #[arg(long = "subgraph-db", short = 'd', default_value = ":memory:")]
     pub subgraph_db: Option<String>,
     /// Disable Studio (eg. surfpool start --no-studio)
@@ -227,13 +230,17 @@ pub struct StartSimnet {
     /// Path to the Test.toml test suite files to load (eg. surfpool start --anchor-test-config-path ./path/to/Test.toml)
     #[arg(long = "anchor-test-config-path")]
     pub anchor_test_config_paths: Vec<String>,
-    /// Enable specific SVM features. Can be specified multiple times. (eg. surfpool start --feature enable-loader-v4 --feature enable-sbpf-v2-deployment-and-execution)
-    #[arg(long = "feature", short = 'f', value_parser = parse_svm_feature)]
-    pub features: Vec<SvmFeature>,
-    /// Disable specific SVM features. Can be specified multiple times. (eg. surfpool start --disable-feature disable-fees-sysvar)
-    #[arg(long = "disable-feature", value_parser = parse_svm_feature)]
-    pub disable_features: Vec<SvmFeature>,
-    /// Enable all SVM features (override mainnet defaults which are used by default)
+    /// Enable specific SVM features by pubkey. Can be specified multiple times. (eg. surfpool start --feature <base58-pubkey> --feature <another-pubkey>)
+    /// Note: providing feature names has been deprecated. Previously supported feature names will still work, but this will be dropped in the future.
+    /// Instead, you should migrate to providing the pubkey for the feature.
+    #[arg(long = "feature", short = 'f', value_parser = parse_feature_pubkey)]
+    pub features: Vec<Pubkey>,
+    /// Disable specific SVM features by pubkey. Can be specified multiple times. (eg. surfpool start --disable-feature <base58-pubkey> --disable-feature <another-pubkey>)
+    /// Note: providing feature names has been deprecated. Previously supported feature names will still work, but this will be dropped in the future.
+    /// Instead, you should migrate to providing the pubkey for the feature.
+    #[arg(long = "disable-feature", value_parser = parse_feature_pubkey)]
+    pub disable_features: Vec<Pubkey>,
+    /// Enable all SVM features from agave-feature-set (override mainnet defaults)
     #[clap(long = "features-all", action=ArgAction::SetTrue, default_value = "false")]
     pub all_features: bool,
     /// A set of inputs to use for the runbook (eg. surfpool start --runbook-input myInputs.json)
@@ -252,15 +259,9 @@ pub struct StartSimnet {
     /// When multiple files are provided, later files override earlier ones for duplicate keys.
     #[arg(long = "snapshot")]
     pub snapshot: Vec<String>,
-}
-
-fn parse_svm_feature(s: &str) -> Result<SvmFeature, String> {
-    SvmFeature::from_str(s).map_err(|_| {
-        format!(
-            "Unknown SVM feature: '{}'. Use --help to see available features.",
-            s
-        )
-    })
+    /// Skip signature verification for all transactions (eg. surfpool start --skip-signature-verification)
+    #[clap(long = "skip-signature-verification", action=ArgAction::SetTrue, default_value = "false")]
+    pub skip_signature_verification: bool,
 }
 
 #[derive(clap::ValueEnum, PartialEq, Clone, Debug)]
@@ -358,10 +359,10 @@ impl StartSimnet {
 
     pub fn feature_config(&self) -> SvmFeatureConfig {
         let mut config = if self.all_features {
-            // Enable all SVM features (override mainnet defaults)
+            // Enable all SVM features from agave-feature-set (override mainnet defaults)
             let mut cfg = SvmFeatureConfig::default();
-            for feature in SvmFeature::all() {
-                cfg = cfg.enable(feature);
+            for pubkey in agave_feature_set::FEATURE_NAMES.keys() {
+                cfg = cfg.enable(*pubkey);
             }
             cfg
         } else {
@@ -370,13 +371,13 @@ impl StartSimnet {
         };
 
         // Apply explicit enables (these override defaults)
-        for feature in &self.features {
-            config = config.enable(*feature);
+        for pubkey in &self.features {
+            config = config.enable(*pubkey);
         }
 
         // Apply explicit disables (these override defaults)
-        for feature in &self.disable_features {
-            config = config.disable(*feature);
+        for pubkey in &self.disable_features {
+            config = config.disable(*pubkey);
         }
 
         config
@@ -409,7 +410,7 @@ impl StartSimnet {
                 Some(self.log_bytes_limit)
             },
             feature_config: self.feature_config(),
-            skip_signature_verification: false,
+            skip_signature_verification: self.skip_signature_verification,
             surfnet_id: self.surfnet_id.clone(),
             snapshot,
         }
@@ -464,16 +465,6 @@ pub struct ListRunbooks {
     /// Path to the manifest
     #[arg(long = "manifest-file-path", short = 'm', default_value = "./txtx.yml")]
     pub manifest_path: String,
-}
-
-#[derive(Subcommand, PartialEq, Clone, Debug)]
-pub enum CloudCommand {
-    /// Login to the Txtx Cloud
-    #[clap(name = "login", bin_name = "login")]
-    Login(LoginCommand),
-    /// Start a new Cloud Surfnet instance
-    #[clap(name = "start", bin_name = "start")]
-    Start(CloudStartCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -577,7 +568,7 @@ pub fn main() {
     };
 
     if let Err(e) = handle_command(opts, &ctx) {
-        error!("{e}");
+        eprintln!("Error: {e}");
         std::thread::sleep(std::time::Duration::from_millis(500));
         process::exit(1);
     }
@@ -644,7 +635,6 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             hiro_system_kit::nestable_block_on(handle_execute_runbook_command(cmd))
         }
         Command::List(cmd) => hiro_system_kit::nestable_block_on(handle_list_command(cmd, ctx)),
-        Command::Cloud(cmd) => hiro_system_kit::nestable_block_on(handle_cloud_commands(cmd)),
         Command::Mcp => hiro_system_kit::nestable_block_on(handle_mcp_command(ctx)),
     }
 }
@@ -654,9 +644,32 @@ async fn generate_completion_helpers(cmd: Completions) -> Result<(), String> {
     let file_name = cmd.shell.file_name("surfpool");
     let mut file = File::create(file_name.clone())
         .map_err(|e| format!("unable to create file {}: {}", file_name, e))?;
-    clap_complete::generate(cmd.shell, &mut app, "surfpool", &mut file);
+
+    let prev_hook = take_hook();
+
+    set_hook(Box::new(|_| {}));
+
+    if let Err(e) = catch_unwind(AssertUnwindSafe(|| {
+        clap_complete::generate(cmd.shell, &mut app, "surfpool", &mut file);
+    })) {
+        let msg = match () {
+            _ if e.downcast_ref::<&'static str>().is_some() => {
+                format!(
+                    "Completion error: {}",
+                    e.downcast_ref::<&'static str>().unwrap()
+                )
+            }
+            _ => {
+                format!("Completion generation failed: {e:#?}")
+            }
+        };
+        println!("{msg}");
+        process::exit(1);
+    }
+    set_hook(prev_hook); // restore so other panics still get reported
+
     println!("{} {}", green!("Created file"), file_name.clone());
-    println!("Check your shell’s docs for how to enable completions for surfpool.");
+    println!("Check your shell's docs for how to enable completions for surfpool.");
     Ok(())
 }
 
@@ -679,30 +692,6 @@ async fn handle_list_command(cmd: ListRunbooks, _ctx: &Context) -> Result<(), St
         );
     }
     Ok(())
-}
-
-async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
-    match cmd {
-        CloudCommand::Login(cmd) => {
-            txtx_cloud::login::handle_login_command(
-                &cmd,
-                DEFAULT_CLOUD_URL,
-                &CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED.to_string(),
-                DEFAULT_ID_SVC_URL,
-            )
-            .await
-        }
-        CloudCommand::Start(cmd) => {
-            cmd.start(
-                DEFAULT_CLOUD_URL,
-                &CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED.to_string(),
-                DEFAULT_ID_SVC_URL,
-                DEFAULT_SVM_GQL_URL,
-                DEFAULT_SVM_CLOUD_API_URL,
-            )
-            .await
-        }
-    }
 }
 
 pub fn setup_logger(

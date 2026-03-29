@@ -8,6 +8,7 @@ use serde_json::json;
 use solana_client::{client_error::ClientError, rpc_request::TokenAccountsFilter};
 use solana_clock::Slot;
 use solana_pubkey::Pubkey;
+use solana_transaction::TransactionError;
 use solana_transaction_status::EncodeError;
 
 use crate::storage::StorageError;
@@ -101,6 +102,18 @@ impl SurfpoolError {
     pub fn missing_context() -> Self {
         let mut error = Error::internal_error();
         error.data = Some(json!("Failed to access internal Surfnet context"));
+        Self(error)
+    }
+
+    pub fn disable_cheatcode(e: String) -> Self {
+        let mut error = Error::invalid_request();
+        error.data = Some(json!(format!("Unable to disable cheatcode: {}", e)));
+        Self(error)
+    }
+
+    pub fn enable_cheatcode(e: String) -> Self {
+        let mut error = Error::invalid_request();
+        error.data = Some(json!(format!("Unable to enable cheatcode: {}", e)));
         Self(error)
     }
 
@@ -463,6 +476,14 @@ impl From<LiteSVMError> for SurfpoolError {
     fn from(e: LiteSVMError) -> Self {
         let mut error = Error::internal_error();
         error.data = Some(json!(format!("LiteSVM error: {}", e.to_string())));
+        SurfpoolError(error)
+    }
+}
+
+impl From<TransactionError> for SurfpoolError {
+    fn from(e: TransactionError) -> Self {
+        let mut error = Error::internal_error();
+        error.data = Some(json!(format!("Transaction error: {}", e.to_string())));
         SurfpoolError(error)
     }
 }

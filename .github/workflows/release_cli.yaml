@@ -196,19 +196,19 @@ jobs:
 
       - name: Build - Cargo (Windows)
         if: matrix.os == 'windows-latest'
-        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check
 
       - name: Build - Cargo (macOS x64)
         if: matrix.os == 'macos-latest' && matrix.architecture == 'x64'
-        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check
 
       - name: Build - Cargo (macOS ARM64)
         if: matrix.os == 'macos-latest' && matrix.architecture == 'arm64'
-        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check
 
       - name: Build - Cargo (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check --features subgraph # --features geyser_plugin # Disabled: version conflicts with litesvm 0.9.1 (requires solana-instruction =3.0.0 vs ~3.1)
+        run: cargo build --release --locked --target ${{ matrix.target }} --features supervisor_ui --features version_check # --features geyser_plugin # Disabled: version conflicts with litesvm 0.9.1 (requires solana-instruction =3.0.0 vs ~3.1)
 
       # Don't compress for Windows because winget can't yet unzip files
       - name: Compress cargo artifact (not windows)
@@ -253,6 +253,115 @@ jobs:
           name: surfpool-${{ env.SHORT_TARGET_NAME }}
           path: surfpool-${{ env.SHORT_TARGET_NAME }}.tar.gz
 
+  build-image-amd64:
+    name: Build Docker Image (amd64)
+    runs-on: ubuntu-latest
+    needs: get_release_info
+    if: startsWith(github.ref, 'refs/heads/main') && needs.get_release_info.outputs.tag != ''
+    permissions:
+      contents: read
+    env:
+      REGISTRY: docker.io
+      IMAGE_NAME: surfpool/surfpool
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=buildkit-amd64
+          cache-to: type=gha,scope=buildkit-amd64,mode=max
+
+  build-image-arm64:
+    name: Build Docker Image (arm64)
+    runs-on: ubuntu-24.04-arm
+    needs: get_release_info
+    if: startsWith(github.ref, 'refs/heads/main') && needs.get_release_info.outputs.tag != ''
+    permissions:
+      contents: read
+    env:
+      REGISTRY: docker.io
+      IMAGE_NAME: surfpool/surfpool
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=buildkit-arm64
+          cache-to: type=gha,scope=buildkit-arm64,mode=max
+
+  merge-image-manifest:
+    name: Merge Docker Manifest
+    runs-on: ubuntu-latest
+    needs:
+      - get_release_info
+      - build-image-amd64
+      - build-image-arm64
+    if: startsWith(github.ref, 'refs/heads/main') && needs.get_release_info.outputs.tag != ''
+    permissions:
+      contents: read
+    env:
+      REGISTRY: docker.io
+      IMAGE_NAME: surfpool/surfpool
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Generate Docker tags
+        id: tags
+        run: |
+          VERSION="${{ needs.get_release_info.outputs.tag }}"
+          VERSION="${VERSION#v}"
+          MAJOR="${VERSION%%.*}"
+          MINOR="${VERSION%.*}"
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}" >> $GITHUB_OUTPUT
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${MINOR}" >> $GITHUB_OUTPUT
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${MAJOR}" >> $GITHUB_OUTPUT
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      - name: Create multi-arch manifest
+        run: |
+          AMD64_DIGEST="${{ needs.build-image-amd64.outputs.digest }}"
+          ARM64_DIGEST="${{ needs.build-image-arm64.outputs.digest }}"
+          while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+            docker buildx imagetools create --tag "$TAG" \
+              "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${AMD64_DIGEST}" \
+              "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${ARM64_DIGEST}"
+          done <<< "${{ steps.tags.outputs.tags }}"
+
   release:
     name: Release
     runs-on: ubuntu-latest
@@ -269,6 +378,8 @@ jobs:
 
       - name: Download pre-built dists
         uses: actions/download-artifact@v4
+        with:
+          pattern: surfpool-*
 
       - name: Tag and Release
         uses: ncipollo/release-action@v1
@@ -281,52 +392,3 @@ jobs:
         run: |
           tar -czvf surfpool-linux-x64.tar.gz surfpool-linux-x64
           tar -czvf surfpool-darwin-arm64.tar.gz surfpool-darwin-arm64
-
-  aws_release:
-    name: Upload to AWS S3
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/heads/main') && needs.get_release_info.outputs.tag != ''
-    needs:
-      - dist_surfpool
-      - get_release_info
-      # - release
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./artifacts
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Upload artifacts to S3
-        run: |
-          TAG=${{ needs.get_release_info.outputs.tag }}
-          echo "Uploading artifacts to S3 for release $TAG"
-
-          # Upload all tarballs to S3 under releases/
-          for file in ./artifacts/**/*.tar.gz; do
-            BASENAME=$(basename "$file")
-            echo "→ Uploading $BASENAME ..."
-            aws s3 cp "$file" "s3://${{ env.S3_BUCKET }}/releases/$BASENAME" \
-              --acl public-read \
-              --cache-control "public, max-age=31536000"
-          done
-
-      - name: Print public URLs
-        run: |
-          echo "✅ Uploaded artifacts are available at:"
-          for file in ./artifacts/**/*.tar.gz; do
-            BASENAME=$(basename "$file")
-            echo "http://${{ env.S3_BUCKET }}.s3.amazonaws.com/releases/$BASENAME"
-          done

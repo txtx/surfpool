@@ -34,6 +34,7 @@ use solana_client::{
 use solana_clock::{Clock, Slot, UnixTimestamp};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
+use solana_epoch_schedule::EpochSchedule;
 use solana_hash::Hash;
 use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_message::{
@@ -71,8 +72,8 @@ use crate::{
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
     surfnet::{FINALIZATION_SLOT_THRESHOLD, ProfilingJob, SLOTS_PER_EPOCH},
     types::{
-        GeyserAccountUpdate, RemoteRpcResult, SurfnetTransactionStatus, TimeTravelConfig,
-        TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
+        GeyserAccountUpdate, OfflineAccountConfig, RemoteRpcResult, SurfnetTransactionStatus,
+        TimeTravelConfig, TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
     },
 };
 
@@ -215,23 +216,30 @@ impl SurfnetSvmLocker {
         do_profile_instructions: bool,
         log_bytes_limit: Option<usize>,
     ) -> SurfpoolResult<EpochInfo> {
-        let mut epoch_info = if let Some(remote_client) = remote_ctx {
-            remote_client.get_epoch_info().await?
+        let (mut epoch_info, epoch_schedule) = if let Some(remote_client) = remote_ctx {
+            let epoch_info = remote_client.get_epoch_info().await?;
+            let epoch_schedule = remote_client.get_epoch_schedule().await?;
+            (epoch_info, epoch_schedule)
         } else {
-            EpochInfo {
-                epoch: 0,
-                slot_index: 0,
-                slots_in_epoch: SLOTS_PER_EPOCH,
-                absolute_slot: FINALIZATION_SLOT_THRESHOLD,
-                block_height: FINALIZATION_SLOT_THRESHOLD,
-                transaction_count: None,
-            }
+            let epoch_schedule = EpochSchedule::without_warmup();
+            (
+                EpochInfo {
+                    epoch: 0,
+                    slot_index: 0,
+                    slots_in_epoch: epoch_schedule.slots_per_epoch,
+                    absolute_slot: FINALIZATION_SLOT_THRESHOLD,
+                    block_height: FINALIZATION_SLOT_THRESHOLD,
+                    transaction_count: None,
+                },
+                epoch_schedule,
+            )
         };
         epoch_info.transaction_count = None;
 
         self.with_svm_writer(|svm_writer| {
             svm_writer.initialize(
                 epoch_info.clone(),
+                epoch_schedule.clone(),
                 slot_time,
                 remote_ctx,
                 do_profile_instructions,
@@ -244,6 +252,24 @@ impl SurfnetSvmLocker {
 
 /// Functions for getting accounts from the underlying SurfnetSvm instance or remote client
 impl SurfnetSvmLocker {
+    /// Filters the downloaded account result to remove accounts owned by offline owners.
+    fn filter_downloaded_account_result(
+        requested_pubkey: &Pubkey,
+        result: GetAccountResult,
+        offline_owners: &[Pubkey],
+    ) -> GetAccountResult {
+        match result {
+            GetAccountResult::FoundAccount(_, account, _)
+            | GetAccountResult::FoundProgramAccount((_, account), _)
+            | GetAccountResult::FoundTokenAccount((_, account), _)
+                if offline_owners.contains(&account.owner) =>
+            {
+                GetAccountResult::None(*requested_pubkey)
+            }
+            other => other,
+        }
+    }
+
     /// Retrieves a local account from the SVM cache, returning a contextualized result.
     pub fn get_account_local(&self, pubkey: &Pubkey) -> SvmAccessContext<GetAccountResult> {
         self.with_contextualized_svm_reader(|svm_reader| {
@@ -251,11 +277,15 @@ impl SurfnetSvmLocker {
 
             if result.is_none() {
                 return match svm_reader.get_account_from_feature_set(pubkey) {
-                    Some(account) => GetAccountResult::FoundAccount(
-                        *pubkey, account,
-                        // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                        false,
-                    ),
+                    Some(account) => {
+                        GetAccountResult::FoundAccount(
+                            *pubkey, account,
+                            // mark this as an account to insert into the SVM, since the feature is activated and LiteSVM doesn't
+                            // automatically insert activated feature accounts
+                            // TODO: mark as false once https://github.com/LiteSVM/litesvm/pull/308 is released
+                            true,
+                        )
+                    }
                     None => GetAccountResult::None(*pubkey),
                 };
             } else {
@@ -266,7 +296,7 @@ impl SurfnetSvmLocker {
 
     /// Attempts local retrieval, then fetches from remote if missing, returning a contextualized result.
     ///
-    /// Does not fetch from remote if the account has been explicitly closed by the user.
+    /// Does not fetch from remote if the account has been explicitly blocked from remote downloads.
     pub async fn get_account_local_then_remote(
         &self,
         client: &SurfnetRemoteClient,
@@ -276,12 +306,18 @@ impl SurfnetSvmLocker {
         let result = self.get_account_local(pubkey);
 
         if result.inner.is_none() {
-            // Check if the account has been explicitly closed - if so, don't fetch from remote
-            let is_closed = self.get_closed_accounts().contains(pubkey);
+            let is_offline = self.is_account_offline(pubkey);
 
-            if !is_closed {
+            if !is_offline {
+                let offline_owners = self.get_offline_account_owners();
                 let remote_account = client.get_account(pubkey, commitment_config).await?;
-                Ok(result.with_new_value(remote_account))
+                Ok(
+                    result.with_new_value(Self::filter_downloaded_account_result(
+                        pubkey,
+                        remote_account,
+                        &offline_owners,
+                    )),
+                )
             } else {
                 Ok(result)
             }
@@ -326,8 +362,10 @@ impl SurfnetSvmLocker {
                     result = match svm_reader.get_account_from_feature_set(pubkey) {
                         Some(account) => GetAccountResult::FoundAccount(
                             *pubkey, account,
-                            // mark as not an account that should be updated in the SVM, since this is a local read and it already exists
-                            false,
+                            // mark this as an account to insert into the SVM, since the feature is activated and LiteSVM doesn't
+                            // automatically insert activated feature accounts
+                            // TODO: mark as false once https://github.com/LiteSVM/litesvm/pull/308 is released
+                            true,
                         ),
                         None => GetAccountResult::None(*pubkey),
                     }
@@ -342,7 +380,7 @@ impl SurfnetSvmLocker {
     ///
     /// Returns accounts in the same order as the input `pubkeys` array. Accounts found locally
     /// are returned as-is; accounts not found locally are fetched from the remote RPC client.
-    /// Accounts that have been explicitly closed are not fetched from remote.
+    /// Accounts that have been marked offline are not fetched from remote.
     pub async fn get_multiple_accounts_with_remote_fallback(
         &self,
         client: &SurfnetRemoteClient,
@@ -356,23 +394,17 @@ impl SurfnetSvmLocker {
             inner: local_results,
         } = self.get_multiple_accounts_local(pubkeys);
 
-        // Get the closed accounts set
-        let closed_accounts = self.get_closed_accounts();
-
-        // Collect missing pubkeys that are NOT closed (local_results is already in correct order from pubkeys)
-        let missing_accounts: Vec<Pubkey> = local_results
-            .iter()
-            .filter_map(|result| match result {
-                GetAccountResult::None(pubkey) => {
-                    if !closed_accounts.contains(pubkey) {
-                        Some(*pubkey)
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            })
-            .collect();
+        // Collect missing pubkeys that are not offline (local_results is already in correct order from pubkeys).
+        let mut missing_accounts = Vec::new();
+        for result in &local_results {
+            let GetAccountResult::None(pubkey) = result else {
+                continue;
+            };
+            if self.is_account_offline(pubkey) {
+                continue;
+            }
+            missing_accounts.push(*pubkey);
+        }
 
         if missing_accounts.is_empty() {
             // All accounts found locally, already in correct order
@@ -394,9 +426,21 @@ impl SurfnetSvmLocker {
             .await?;
 
         // Build map of pubkey -> remote result for O(1) lookup
+        let offline_owners = self.get_offline_account_owners();
         let remote_map: HashMap<Pubkey, GetAccountResult> = missing_accounts
-            .into_iter()
+            .iter()
+            .copied()
             .zip(remote_results.into_iter())
+            .map(|(requested_pubkey, result)| {
+                (
+                    requested_pubkey,
+                    Self::filter_downloaded_account_result(
+                        &requested_pubkey,
+                        result,
+                        &offline_owners,
+                    ),
+                )
+            })
             .collect();
 
         // Replace None entries with remote results while preserving order
@@ -406,17 +450,10 @@ impl SurfnetSvmLocker {
             .zip(local_results.into_iter())
             .map(|(pubkey, local_result)| {
                 match local_result {
-                    GetAccountResult::None(_) => {
-                        // Replace with remote result if available and not closed
-                        if closed_accounts.contains(pubkey) {
-                            GetAccountResult::None(*pubkey)
-                        } else {
-                            remote_map
-                                .get(pubkey)
-                                .cloned()
-                                .unwrap_or(GetAccountResult::None(*pubkey))
-                        }
-                    }
+                    GetAccountResult::None(_) => remote_map
+                        .get(pubkey)
+                        .cloned()
+                        .unwrap_or(GetAccountResult::None(*pubkey)),
                     found => {
                         debug!("Keeping local account: {}", pubkey);
                         found
@@ -780,22 +817,34 @@ impl SurfnetSvmLocker {
 
 /// Get signatures for Addresses
 impl SurfnetSvmLocker {
+    /// Returns local `getSignaturesForAddress` results in the same newest-first order expected by
+    /// the Solana RPC.
+    ///
+    /// The implementation has to do more than filter by slot:
+    /// - transactions are ordered by descending slot
+    /// - transactions within the same slot are ordered by their execution order in the block
+    /// - `before` and `until` are pagination boundaries in that final ordered stream
+    ///
+    /// To preserve those semantics, we first collect matching transactions, reconstruct their
+    /// intra-slot ordering from block headers, sort the full result stream, and only then apply
+    /// the `before` / `until` window followed by `limit`.
     pub fn get_signatures_for_address_local(
         &self,
         pubkey: &Pubkey,
         config: Option<RpcSignaturesForAddressConfig>,
     ) -> SvmAccessContext<Vec<RpcConfirmedTransactionStatusWithSignature>> {
-        self.with_contextualized_svm_reader(|svm_reader| {
+        let RpcSignaturesForAddressConfig {
+            before,
+            until,
+            limit,
+            min_context_slot,
+            ..
+        } = config.unwrap_or_default();
+
+        self.with_contextualized_svm_reader(move |svm_reader| {
             let current_slot = svm_reader.get_latest_absolute_slot();
 
-            let config = config.clone().unwrap_or_default();
-            let limit = config.limit.unwrap_or(1000);
-
-            let config_before = config.before.clone();
-            let config_until = config.until.clone();
-
-            let mut before_slot = None;
-            let mut until_slot = None;
+            let limit = limit.unwrap_or(1000);
 
             let sigs: Vec<_> = svm_reader
                 .transactions
@@ -809,18 +858,12 @@ impl SurfnetSvmLocker {
                                 meta,
                             },
                             _,
-                        ) = status.expect_processed();
+                        ) = status
+                            .as_processed()
+                            .expect("expected processed transaction");
 
-                        if *slot < config.clone().min_context_slot.unwrap_or_default() {
+                        if slot < min_context_slot.unwrap_or_default() {
                             return None;
-                        }
-
-                        if Some(sig.clone()) == config_before {
-                            before_slot = Some(*slot);
-                        }
-
-                        if Some(sig.clone()) == config_until {
-                            until_slot = Some(*slot);
                         }
 
                         // Check if the pubkey is a signer
@@ -831,19 +874,19 @@ impl SurfnetSvmLocker {
 
                         // Determine confirmation status
                         let confirmation_status = match current_slot {
-                            cs if cs == *slot => SolanaTransactionConfirmationStatus::Processed,
-                            cs if cs < *slot + FINALIZATION_SLOT_THRESHOLD => {
+                            cs if cs == slot => SolanaTransactionConfirmationStatus::Processed,
+                            cs if cs < slot + FINALIZATION_SLOT_THRESHOLD => {
                                 SolanaTransactionConfirmationStatus::Confirmed
                             }
                             _ => SolanaTransactionConfirmationStatus::Finalized,
                         };
 
                         Some(RpcConfirmedTransactionStatusWithSignature {
-                            err: match &meta.status {
+                            err: match meta.status {
                                 Ok(_) => None,
-                                Err(e) => Some(e.clone().into()),
+                                Err(e) => Some(e.into()),
                             },
-                            slot: *slot,
+                            slot,
                             memo: None,
                             block_time: None,
                             confirmation_status: Some(confirmation_status),
@@ -854,26 +897,62 @@ impl SurfnetSvmLocker {
                 })
                 .unwrap_or_default();
 
-            sigs.into_iter()
-                .filter(|sig| {
-                    if config.before.is_none() && config.until.is_none() {
-                        return true;
+            // `getSignaturesForAddress` is ordered newest-first, but transactions that share a
+            // slot also need to preserve their execution order within that block.
+            let unique_slots: HashSet<u64> = sigs.iter().map(|s| s.slot).collect();
+            let mut sig_position: HashMap<String, usize> = HashMap::new();
+            for slot in unique_slots {
+                if let Ok(Some(block_header)) = svm_reader.blocks.get(&slot) {
+                    for (idx, block_sig) in block_header.signatures.iter().enumerate() {
+                        sig_position.insert(block_sig.to_string(), idx);
                     }
+                }
+            }
 
-                    if config.before.is_some() && before_slot > Some(sig.slot) {
-                        return true;
-                    }
-
-                    if config.until.is_some() && until_slot < Some(sig.slot) {
-                        return true;
-                    }
-
-                    false
+            let sigs: Vec<_> = sigs
+                .into_iter()
+                // Order from most recent to least recent so pagination boundaries
+                // can be applied against the exact transaction sequence.
+                .sorted_by(|a, b| {
+                    b.slot.cmp(&a.slot).then_with(|| {
+                        let a_pos = sig_position.get(&a.signature).unwrap_or(&usize::MAX);
+                        let b_pos = sig_position.get(&b.signature).unwrap_or(&usize::MAX);
+                        b_pos.cmp(&a_pos)
+                    })
                 })
-                // order from most recent to least recent
-                .sorted_by(|a, b| b.slot.cmp(&a.slot))
-                .take(limit)
-                .collect()
+                .collect();
+
+            let window = {
+                // `before` and `until` are boundaries in the final ordered result stream, not
+                // just slot filters. We compute a [start..end) index range after sorting so
+                // same-slot pagination behaves correctly and `until` stays exclusive.
+                let start = match before.as_deref() {
+                    // `before` is exclusive, so we start one item after the boundary when it
+                    // exists. If it does not exist locally, the local window is empty.
+                    Some(before) => match sigs.iter().position(|sig| sig.signature == before) {
+                        Some(idx) => idx + 1,
+                        None => sigs.len(),
+                    },
+                    None => 0,
+                };
+
+                let end = match until.as_deref() {
+                    // `until` is also exclusive, so the boundary itself is not included. We only
+                    // search within `sigs[start..]` so the end boundary is resolved relative to the
+                    // already-trimmed start of the window. If it is missing, we keep the full tail.
+                    Some(until) => {
+                        match sigs[start..].iter().position(|sig| sig.signature == until) {
+                            Some(offset) => start + offset,
+                            None => sigs.len(),
+                        }
+                    }
+                    None => sigs.len(),
+                };
+                start..end
+            };
+
+            // Apply the pagination window first, then enforce the RPC limit on that slice.
+            sigs[window].iter().take(limit).cloned().collect()
         })
     }
 
@@ -1034,8 +1113,19 @@ impl SurfnetSvmLocker {
                 // the RPC handler from hanging on recv() when errors occur during
                 // account fetching, ALT resolution, or other pre-processing steps.
                 // This is critical for issue #454 where program close stops block production.
-                let _ =
-                    status_tx.try_send(TransactionStatusEvent::VerificationFailure(e.to_string()));
+                //
+                // AccountLoadedTwice errors should go through SimulationFailure to produce
+                // Agave-compatible JSON-RPC error format with structured `err` and `data` fields.
+                let err_str = e.to_string();
+                if err_str.contains("Account loaded twice") {
+                    let _ = status_tx.try_send(TransactionStatusEvent::SimulationFailure((
+                        TransactionError::AccountLoadedTwice,
+                        surfpool_types::TransactionMetadata::default(),
+                    )));
+                } else {
+                    let _ =
+                        status_tx.try_send(TransactionStatusEvent::VerificationFailure(err_str));
+                }
                 return Err(e);
             }
         };
@@ -1100,6 +1190,12 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolResult<KeyedProfileResult> {
         let signature = transaction.signatures[0];
 
+        // Sigverify the transaction upfront before doing any account fetching or other pre-processing.
+        if sigverify {
+            self.with_svm_reader(|svm_reader| svm_reader.sigverify(&transaction))
+                .map_err(|e| Into::<SurfpoolError>::into(e.err))?;
+        }
+
         let latest_absolute_slot = self.with_svm_writer(|svm_writer| {
             let latest_absolute_slot = svm_writer.get_latest_absolute_slot();
             svm_writer.notify_signature_subscribers(
@@ -1117,6 +1213,18 @@ impl SurfnetSvmLocker {
         let tx_loaded_addresses = self
             .get_loaded_addresses(remote_ctx, &transaction.message)
             .await?;
+
+        // Check for duplicate accounts between static keys and ALT-loaded addresses.
+        // Agave rejects such transactions pre-execution with AccountLoadedTwice.
+        if let Some(ref loaded) = tx_loaded_addresses {
+            let static_keys: HashSet<&Pubkey> =
+                transaction.message.static_account_keys().iter().collect();
+            for loaded_key in loaded.all_loaded_addresses() {
+                if static_keys.contains(loaded_key) {
+                    return Err(TransactionError::AccountLoadedTwice.into());
+                }
+            }
+        }
 
         // we don't want the pubkeys of the address lookup tables to be included in the transaction accounts,
         // but we do want the pubkeys of the accounts _loaded_ by the ALT to be in the transaction accounts.
@@ -1489,7 +1597,9 @@ impl SurfnetSvmLocker {
                     });
                 }
                 self.with_svm_writer(|svm_writer| {
-                    svm_writer.notify_account_subscribers(pubkey, &after.unwrap_or_default());
+                    let after_account = after.unwrap_or_default();
+                    svm_writer.notify_account_subscribers(pubkey, &after_account);
+                    svm_writer.notify_program_subscribers(pubkey, &after_account);
                 });
             }
         }
@@ -1655,6 +1765,7 @@ impl SurfnetSvmLocker {
                         ));
                     }
                     svm_writer.notify_account_subscribers(pubkey, &after);
+                    svm_writer.notify_program_subscribers(pubkey, &after);
                 }
             }
 
@@ -1893,9 +2004,6 @@ impl SurfnetSvmLocker {
     /// allowing them to be fetched fresh from mainnet on the next access.
     /// It handles program accounts (including their program data accounts) and can optionally
     /// cascade the reset to all accounts owned by a program.
-    ///
-    /// This is different from `close_account()` which marks an account as permanently closed
-    /// and prevents it from being fetched from mainnet.
     pub fn reset_account(
         &self,
         pubkey: Pubkey,
@@ -1906,17 +2014,18 @@ impl SurfnetSvmLocker {
             "Account {} will be reset",
             pubkey
         )));
-        // Unclose the account so it can be fetched from mainnet again
-        self.unclose_account(pubkey)?;
+        // Set the account online so it can be fetched from mainnet again.
+        self.remove_offline_account(pubkey, include_owned_accounts)?;
+
         self.with_svm_writer(move |svm_writer| {
             svm_writer.reset_account(&pubkey, include_owned_accounts)
         })
     }
 
-    /// Resets SVM state and clears all closed accounts.
+    /// Resets SVM state and clears all offline account entries.
     ///
     /// This function coordinates the reset of the entire network state.
-    /// It also clears the closed_accounts set so all accounts can be fetched from mainnet again.
+    /// It also clears the offline account set so all accounts can be fetched from mainnet again.
     pub async fn reset_network(
         &self,
         remote_ctx: &Option<SurfnetRemoteClient>,
@@ -1941,8 +2050,38 @@ impl SurfnetSvmLocker {
 
         self.with_svm_writer(move |svm_writer| {
             let _ = svm_writer.reset_network(epoch_info);
-            svm_writer.closed_accounts.clear();
+            let _ = svm_writer.offline_accounts.clear();
         });
+        Ok(())
+    }
+
+    /// Marks an account as offline, preventing it from being downloaded from the remote RPC.
+    ///
+    /// When `include_owned_accounts` is enabled, this also marks accounts as offline that are already known locally.
+    /// Accounts discovered later through direct remote fetches are rejected lazily if they are
+    /// owned by an offline owner.
+    pub async fn insert_offline_account(
+        &self,
+        pubkey: Pubkey,
+        include_owned_accounts: bool,
+    ) -> SurfpoolResult<()> {
+        let simnet_events_tx = self.simnet_events_tx();
+        let _ = simnet_events_tx.send(SimnetEvent::info(format!(
+            "Account {} will be marked offline (excluded from remote downloads)",
+            pubkey
+        )));
+
+        self.with_svm_writer(move |svm_writer| {
+            if let Err(e) = svm_writer.offline_accounts.store(
+                pubkey.to_string(),
+                OfflineAccountConfig {
+                    include_owned_accounts,
+                },
+            ) {
+                warn!("Failed to store offline account {}: {}", pubkey, e);
+            }
+        });
+
         Ok(())
     }
 
@@ -1975,20 +2114,72 @@ impl SurfnetSvmLocker {
         })
     }
 
-    /// Removes an account from the closed accounts set.
+    /// Removes an account from the offline account set.
     ///
     /// This allows the account to be fetched from mainnet again if requested.
     /// This is useful when resetting an account for a refresh/stream operation.
-    pub fn unclose_account(&self, pubkey: Pubkey) -> SurfpoolResult<()> {
+    pub fn remove_offline_account(
+        &self,
+        pubkey: Pubkey,
+        include_owned_accounts: bool,
+    ) -> SurfpoolResult<()> {
         self.with_svm_writer(move |svm_writer| {
-            svm_writer.closed_accounts.remove(&pubkey);
+            if let Err(e) = svm_writer.offline_accounts.take(&pubkey.to_string()) {
+                warn!("Failed to set account online {}: {}", pubkey, e);
+            }
+
+            if include_owned_accounts {
+                // Set online any locally-known accounts owned by this pubkey.
+                // Uses the accounts_by_owner index as a fast lookup.
+                let owned_pubkeys: Vec<Pubkey> = svm_writer
+                    .accounts_by_owner
+                    .get(&pubkey.to_string())
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|pk_str| pk_str.parse().ok())
+                    .collect();
+                for owned_pk in owned_pubkeys {
+                    if let Err(e) = svm_writer.offline_accounts.take(&owned_pk.to_string()) {
+                        warn!("Failed to set account online {}: {}", owned_pk, e);
+                    }
+                }
+            }
         });
         Ok(())
     }
 
-    /// Gets all currently closed accounts.
-    pub fn get_closed_accounts(&self) -> Vec<Pubkey> {
-        self.with_svm_reader(|svm_reader| svm_reader.closed_accounts.iter().copied().collect())
+    /// Returns true if the given pubkey is marked offline.
+    pub fn is_account_offline(&self, pubkey: &Pubkey) -> bool {
+        self.with_svm_reader(|svm_reader| {
+            svm_reader
+                .offline_accounts
+                .contains_key(&pubkey.to_string())
+                .unwrap_or(false)
+        })
+    }
+
+    /// Gets all owners whose accounts are marked offline.
+    pub fn get_offline_account_owners(&self) -> Vec<Pubkey> {
+        self.with_svm_reader(|svm_reader| {
+            svm_reader
+                .offline_accounts
+                .into_iter()
+                .unwrap_or_else(|e| {
+                    warn!("Failed to iterate offline_accounts: {}", e);
+                    Box::new(std::iter::empty())
+                })
+                .filter(|(_, config)| config.include_owned_accounts)
+                .filter_map(|(k, _)| match k.parse() {
+                    Ok(pk) => Some(pk),
+                    Err(e) => {
+                        warn!("Invalid pubkey in offline_accounts: {}: {}", k, e);
+                        None
+                    }
+                })
+                .collect()
+        })
     }
 
     /// Registers a scenario for execution
@@ -3002,6 +3193,18 @@ impl SurfnetSvmLocker {
         slot: &Slot,
         config: &RpcBlockConfig,
     ) -> SurfpoolContextualizedResult<Option<UiConfirmedBlock>> {
+        let committed_slot = self.get_slot_for_commitment(&config.commitment.unwrap_or_default());
+        if *slot > committed_slot {
+            return Ok(SvmAccessContext {
+                slot: committed_slot,
+                latest_epoch_info: self.get_epoch_info(),
+                latest_blockhash: self
+                    .get_latest_blockhash(&CommitmentConfig::processed())
+                    .unwrap_or_default(),
+                inner: None,
+            });
+        }
+
         let first_local_slot = self.get_first_local_slot();
 
         let result = if first_local_slot.is_some() && first_local_slot.unwrap() > *slot {
@@ -3180,6 +3383,18 @@ impl SurfnetSvmLocker {
         })
     }
 
+    /// Subscribes for program account updates and returns a receiver of keyed account updates.
+    pub fn subscribe_for_program_updates(
+        &self,
+        program_id: &Pubkey,
+        encoding: Option<UiAccountEncoding>,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> Receiver<RpcKeyedAccount> {
+        self.with_svm_writer(|svm_writer| {
+            svm_writer.subscribe_for_program_updates(program_id, encoding, filters)
+        })
+    }
+
     /// Subscribes for slot updates and returns a receiver of slot updates.
     pub fn subscribe_for_slot_updates(&self) -> Receiver<SlotInfo> {
         self.with_svm_writer(|svm_writer| svm_writer.subscribe_for_slot_updates())
@@ -3325,11 +3540,10 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolResult<()> {
         let program_data_address = get_program_data_address(&program_id);
 
-        let _ = self
+        let program_account = self
             .get_or_create_program_account(program_id, program_data_address, remote_ctx)
             .await?;
 
-        // Get or create program data account
         let _ = self
             .write_program_data_account_with_offset(
                 program_id,
@@ -3340,6 +3554,21 @@ impl SurfnetSvmLocker {
                 remote_ctx,
             )
             .await?;
+
+        // Re-set the program account to force LiteSVM to recompile the program
+        // from the updated programdata. Without this, the program cache retains
+        // the noop placeholder compiled during initial program account creation.
+        // Errors are expected for incomplete ELF (multi-chunk writes) and are
+        // logged but not propagated.
+        let set_result = self.with_svm_writer(|svm_writer| {
+            svm_writer.set_account(&program_id, program_account.clone())
+        });
+        if let Err(e) = set_result {
+            let _ = self.simnet_events_tx().send(SimnetEvent::info(format!(
+                "Program cache update deferred for {}: {}",
+                program_id, e
+            )));
+        }
 
         Ok(())
     }
@@ -3545,6 +3774,16 @@ impl SurfnetSvmLocker {
             SurfpoolError::internal(format!("Failed to serialize program data metadata: {}", e))
         })?;
 
+        // Strip the minimum_program.so placeholder if it was pre-filled by
+        // init_programdata_account during program account creation. This prevents
+        // leftover placeholder bytes when the actual program is smaller than 3312 bytes.
+        let minimum_program_bytes = crate::surfnet::noop_program::NOOP_PROGRAM_ELF;
+        if program_data_account.data.len() == metadata_size + minimum_program_bytes.len()
+            && program_data_account.data[metadata_size..] == *minimum_program_bytes
+        {
+            program_data_account.data.truncate(metadata_size);
+        }
+
         // Calculate absolute offset in account data (metadata + offset)
         let absolute_offset = metadata_size + offset;
         let end_offset = absolute_offset + data.len();
@@ -3591,7 +3830,10 @@ impl SurfnetSvmLocker {
 }
 
 // Helper function to apply filters
-fn apply_rpc_filters(account_data: &[u8], filters: &[RpcFilterType]) -> SurfpoolResult<bool> {
+pub(crate) fn apply_rpc_filters(
+    account_data: &[u8],
+    filters: &[RpcFilterType],
+) -> SurfpoolResult<bool> {
     for filter in filters {
         match filter {
             RpcFilterType::DataSize(size) => {
@@ -3696,11 +3938,13 @@ mod tests {
 
     use solana_account::Account;
     use solana_account_decoder::UiAccountEncoding;
+    use solana_epoch_schedule::EpochSchedule;
+    use solana_transaction_status::TransactionStatusMeta;
 
     use super::*;
     use crate::{
         scenarios::registry::PYTH_V2_IDL_CONTENT,
-        surfnet::{SurfnetSvm, svm::apply_override_to_decoded_account},
+        surfnet::{BlockHeader, SurfnetSvm, svm::apply_override_to_decoded_account},
     };
 
     #[test]
@@ -4582,6 +4826,383 @@ mod tests {
                 .with_svm_reader(|svm| svm.get_account(&valid_pubkey))
                 .unwrap()
                 .is_some()
+        );
+    }
+
+    /// Helper: create a VersionedTransaction with a given signature whose account keys contain `pubkey`.
+    fn make_test_tx(sig: Signature, pubkey: &Pubkey) -> VersionedTransaction {
+        use solana_system_interface::instruction as system_instruction;
+        VersionedTransaction {
+            signatures: vec![sig],
+            message: VersionedMessage::Legacy(Message::new(
+                &[system_instruction::transfer(pubkey, pubkey, 1)],
+                Some(pubkey),
+            )),
+        }
+    }
+
+    /// Helper: store a transaction into the SVM at the given slot.
+    fn store_test_tx(svm: &mut SurfnetSvm, sig: Signature, pubkey: &Pubkey, slot: u64) {
+        let tx = make_test_tx(sig, pubkey);
+        svm.transactions
+            .store(
+                sig.to_string(),
+                SurfnetTransactionStatus::processed(
+                    TransactionWithStatusMeta {
+                        slot,
+                        transaction: tx,
+                        meta: TransactionStatusMeta {
+                            status: Ok(()),
+                            fee: 5000,
+                            pre_balances: vec![0; 3],
+                            post_balances: vec![0; 3],
+                            inner_instructions: Some(vec![]),
+                            log_messages: Some(vec![]),
+                            pre_token_balances: Some(vec![]),
+                            post_token_balances: Some(vec![]),
+                            rewards: Some(vec![]),
+                            loaded_addresses: LoadedAddresses::default(),
+                            return_data: None,
+                            compute_units_consumed: Some(0),
+                            cost_units: None,
+                        },
+                    },
+                    HashSet::new(),
+                ),
+            )
+            .unwrap();
+    }
+
+    fn seed_signature_history(
+        locker: &SurfnetSvmLocker,
+        pubkey: &Pubkey,
+        blocks: &[(u64, Vec<Signature>)],
+    ) {
+        locker.with_svm_writer(|svm| {
+            for (slot, signatures) in blocks {
+                for sig in signatures {
+                    store_test_tx(svm, *sig, pubkey, *slot);
+                }
+
+                svm.blocks
+                    .store(
+                        *slot,
+                        BlockHeader {
+                            hash: String::new(),
+                            previous_blockhash: String::new(),
+                            parent_slot: 0,
+                            block_time: 0,
+                            block_height: 0,
+                            signatures: signatures.clone(),
+                        },
+                    )
+                    .unwrap();
+            }
+        });
+    }
+
+    fn fetch_signature_strings(
+        locker: &SurfnetSvmLocker,
+        pubkey: &Pubkey,
+        config: Option<RpcSignaturesForAddressConfig>,
+    ) -> Vec<String> {
+        locker
+            .get_signatures_for_address_local(pubkey, config)
+            .inner
+            .iter()
+            .map(|s| s.signature.clone())
+            .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_ordering_within_block() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let sig_c = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(&locker, &pubkey, &[(slot, vec![sig_a, sig_b, sig_c])]);
+        let sigs = fetch_signature_strings(&locker, &pubkey, None);
+
+        // Last executed (C) should appear first, then B, then A
+        assert_eq!(sigs.len(), 3);
+        assert_eq!(sigs[0], sig_c.to_string());
+        assert_eq!(sigs[1], sig_b.to_string());
+        assert_eq!(sigs[2], sig_a.to_string());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_until_excludes_boundary_signature() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let sig_c = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(&locker, &pubkey, &[(slot, vec![sig_a, sig_b, sig_c])]);
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                until: Some(sig_b.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_c.to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_before_excludes_boundary_signature() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let sig_c = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(&locker, &pubkey, &[(slot, vec![sig_a, sig_b, sig_c])]);
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                before: Some(sig_b.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_a.to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_before_and_until_form_window() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let sig_c = Signature::new_unique();
+        let sig_d = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(
+            &locker,
+            &pubkey,
+            &[(slot, vec![sig_a, sig_b, sig_c, sig_d])],
+        );
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                before: Some(sig_d.to_string()),
+                until: Some(sig_b.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_c.to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_before_missing_returns_empty() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let missing_sig = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(&locker, &pubkey, &[(slot, vec![sig_a, sig_b])]);
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                before: Some(missing_sig.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert!(sigs.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_until_missing_returns_all_results() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let missing_sig = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(&locker, &pubkey, &[(slot, vec![sig_a, sig_b])]);
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                until: Some(missing_sig.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_b.to_string(), sig_a.to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_limit_applies_after_windowing() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let sig_c = Signature::new_unique();
+        let sig_d = Signature::new_unique();
+        let sig_e = Signature::new_unique();
+        let slot = 5;
+
+        seed_signature_history(
+            &locker,
+            &pubkey,
+            &[(slot, vec![sig_a, sig_b, sig_c, sig_d, sig_e])],
+        );
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                before: Some(sig_e.to_string()),
+                until: Some(sig_a.to_string()),
+                limit: Some(2),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_d.to_string(), sig_c.to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_until_excludes_boundary_across_slots() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_s5 = Signature::new_unique();
+        let sig_s10_a = Signature::new_unique();
+        let sig_s10_b = Signature::new_unique();
+        let sig_s15 = Signature::new_unique();
+
+        seed_signature_history(
+            &locker,
+            &pubkey,
+            &[
+                (5, vec![sig_s5]),
+                (10, vec![sig_s10_a, sig_s10_b]),
+                (15, vec![sig_s15]),
+            ],
+        );
+        let sigs = fetch_signature_strings(
+            &locker,
+            &pubkey,
+            Some(RpcSignaturesForAddressConfig {
+                until: Some(sig_s10_b.to_string()),
+                ..RpcSignaturesForAddressConfig::default()
+            }),
+        );
+
+        assert_eq!(sigs, vec![sig_s15.to_string()]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_ordering_across_slots() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_s5_a = Signature::new_unique();
+        let sig_s5_b = Signature::new_unique();
+        let sig_s10_a = Signature::new_unique();
+        let sig_s10_b = Signature::new_unique();
+
+        seed_signature_history(
+            &locker,
+            &pubkey,
+            &[
+                (5, vec![sig_s5_a, sig_s5_b]),
+                (10, vec![sig_s10_a, sig_s10_b]),
+            ],
+        );
+        let sigs = fetch_signature_strings(&locker, &pubkey, None);
+
+        // Slot 10 txs first (descending), then slot 5 txs
+        // Within each slot: last executed first
+        assert_eq!(sigs.len(), 4);
+        assert_eq!(sigs[0], sig_s10_b.to_string());
+        assert_eq!(sigs[1], sig_s10_a.to_string());
+        assert_eq!(sigs[2], sig_s5_b.to_string());
+        assert_eq!(sigs[3], sig_s5_a.to_string());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_signatures_for_address_ordering_missing_block_header() {
+        let (svm, _events_rx, _geyser_rx) = SurfnetSvm::default();
+        let locker = SurfnetSvmLocker::new(svm);
+
+        let pubkey = Pubkey::new_unique();
+        let sig_a = Signature::new_unique();
+        let sig_b = Signature::new_unique();
+        let slot = 5;
+
+        locker.with_svm_writer(|svm| {
+            store_test_tx(svm, sig_a, &pubkey, slot);
+            store_test_tx(svm, sig_b, &pubkey, slot);
+            // No block header stored — should not panic
+        });
+
+        let result = locker.get_signatures_for_address_local(&pubkey, None);
+
+        // Both transactions should be returned regardless
+        assert_eq!(result.inner.len(), 2);
+
+        // Verify both signatures are present (order not guaranteed without block header)
+        let sigs: HashSet<String> = result.inner.iter().map(|s| s.signature.clone()).collect();
+        assert!(sigs.contains(&sig_a.to_string()));
+        assert!(sigs.contains(&sig_b.to_string()));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn initializes_epoch_schedule_without_warmup_when_offline() {
+        let (surfnet_svm, _simnet_events_rx, _geyser_events_rx) = SurfnetSvm::default();
+        let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
+
+        svm_locker
+            .initialize(400, &None, false, None)
+            .await
+            .expect("initialize should succeed");
+
+        let epoch_schedule =
+            svm_locker.with_svm_reader(|svm_reader| svm_reader.inner.get_sysvar::<EpochSchedule>());
+
+        assert!(
+            !epoch_schedule.warmup,
+            "offline initialization should disable warmup to match mainnet"
+        );
+        assert_eq!(
+            epoch_schedule.get_first_slot_in_epoch(886),
+            886_u64 * 432_000,
+            "first slot should align with mainnet epoch boundaries when warmup is disabled"
         );
     }
 }

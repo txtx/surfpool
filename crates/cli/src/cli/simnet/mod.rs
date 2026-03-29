@@ -33,7 +33,7 @@ use txtx_gql::kit::{indexmap::IndexMap, types::frontend::LogLevel, uuid::Uuid};
 
 use super::{Context, ExecuteRunbook, StartSimnet};
 use crate::{
-    http::start_subgraph_and_explorer_server,
+    http::start_studio_and_scenario_server,
     runbook::{execute_in_memory_runbook, execute_on_disk_runbook, handle_log_event},
     scaffold::{
         ProgramFrameworkData, detect_program_frameworks, scaffold_iac_layout,
@@ -69,7 +69,6 @@ pub async fn handle_start_local_surfnet_command(
     surfnet_svm.apply_feature_config(&feature_config);
 
     let (simnet_commands_tx, simnet_commands_rx) = crossbeam::channel::unbounded();
-    let (subgraph_commands_tx, subgraph_commands_rx) = crossbeam::channel::unbounded();
     let (subgraph_events_tx, subgraph_events_rx) = crossbeam::channel::unbounded();
     let simnet_events_tx = surfnet_svm.simnet_events_tx.clone();
 
@@ -142,19 +141,16 @@ pub async fn handle_start_local_surfnet_command(
         workspace: None,
     };
 
-    let subgraph_database_path = cmd.subgraph_db.as_deref().unwrap_or(":memory:");
-    let explorer_handle = match start_subgraph_and_explorer_server(
+    let explorer_handle = match start_studio_and_scenario_server(
         studio_binding_address,
-        subgraph_database_path,
         sanitized_config.clone(),
         subgraph_events_tx.clone(),
-        subgraph_commands_rx,
         ctx,
         !cmd.no_studio,
     )
     .await
     {
-        Ok((explorer_handle, _)) => Some(explorer_handle),
+        Ok(explorer_handle) => Some(explorer_handle),
         Err(e) => {
             error!("Failed to start subgraph and explorer server: {}", e);
             let _ = simnet_events_tx.send(SimnetEvent::warn(format!(
@@ -175,7 +171,6 @@ pub async fn handle_start_local_surfnet_command(
             let future = start_local_surfnet(
                 surfnet_svm,
                 config_copy,
-                subgraph_commands_tx,
                 simnet_commands_tx_copy,
                 simnet_commands_rx,
                 geyser_events_rx,
@@ -512,15 +507,22 @@ async fn write_and_execute_iac(
     // If there were existing on-disk runbooks, we'll execute those instead of in-memory ones
     // If there were no existing runbooks and the user requested autopilot, we'll generate and execute in-memory runbooks
     // If there were no existing runbooks and the user did not request autopilot, we'll generate and execute on-disk runbooks
-    let do_execute_in_memory_runbooks = cmd.anchor_compat && !txtx_manifest_exists;
-    if !cmd.anchor_compat && txtx_manifest_exists {
+    // When --artifacts-path is set, always use in-memory runbooks so the custom bin_path is injected
+    let has_custom_artifacts_path = cmd.artifacts_path.is_some();
+    let do_execute_in_memory_runbooks =
+        has_custom_artifacts_path || (cmd.anchor_compat && !txtx_manifest_exists);
+    if !has_custom_artifacts_path && !cmd.anchor_compat && txtx_manifest_exists {
         let runbooks_ids_to_execute = cmd.runbooks.clone();
         on_disk_runbook_data = Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
     };
 
     // Are we in a project directory?
-    if let Ok(deployment) =
-        detect_program_frameworks(&cmd.manifest_path, &cmd.anchor_test_config_paths).await
+    if let Ok(deployment) = detect_program_frameworks(
+        &cmd.manifest_path,
+        &cmd.anchor_test_config_paths,
+        cmd.artifacts_path.as_deref(),
+    )
+    .await
     {
         if let Some(ProgramFrameworkData {
             framework,
@@ -529,7 +531,6 @@ async fn write_and_execute_iac(
             accounts,
             accounts_dir,
             clones,
-            generate_subgraphs,
         }) = deployment
         {
             if let Some(clones) = clones.as_ref() {
@@ -549,7 +550,8 @@ async fn write_and_execute_iac(
             }
 
             // Is infrastructure-as-code (IaC) already setup?
-            let do_write_scaffold = !cmd.anchor_compat && !txtx_manifest_exists;
+            let do_write_scaffold =
+                !has_custom_artifacts_path && !cmd.anchor_compat && !txtx_manifest_exists;
             if do_write_scaffold {
                 // Scaffold IaC
                 scaffold_iac_layout(
@@ -557,8 +559,10 @@ async fn write_and_execute_iac(
                     &programs,
                     &base_location,
                     cmd.skip_runbook_generation_prompts,
-                    generate_subgraphs,
                 )?;
+                let runbooks_ids_to_execute = cmd.runbooks.clone();
+                on_disk_runbook_data =
+                    Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
             }
 
             if do_execute_in_memory_runbooks {
@@ -568,7 +572,7 @@ async fn write_and_execute_iac(
                     &genesis_accounts,
                     &accounts,
                     &accounts_dir,
-                    generate_subgraphs,
+                    cmd.artifacts_path.as_deref(),
                 )?);
             }
         }
@@ -590,11 +594,16 @@ async fn write_and_execute_iac(
             .map_err(|e| format!("Thread to execute runbooks exited: {}", e))?;
 
         if cmd.watch {
+            let artifacts_path_for_watch = cmd.artifacts_path.clone();
             let _handle = hiro_system_kit::thread_named("Watch Filesystem")
                 .spawn(move || {
                     let mut target_path = base_location.clone();
-                    let _ = target_path.append_path("target");
-                    let _ = target_path.append_path("deploy");
+                    if let Some(ref path) = artifacts_path_for_watch {
+                        let _ = target_path.append_path(path);
+                    } else {
+                        let _ = target_path.append_path("target");
+                        let _ = target_path.append_path("deploy");
+                    }
                     let (tx, rx) = mpsc::channel::<NotifyResult<Event>>();
                     let mut watcher = notify::recommended_watcher(tx).map_err(|e| e.to_string())?;
                     watcher

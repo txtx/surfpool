@@ -5,24 +5,7 @@ use std::{
     time::SystemTime,
 };
 
-use agave_feature_set::{
-    FeatureSet, abort_on_invalid_curve, blake3_syscall_enabled, curve25519_syscall_enabled,
-    deplete_cu_meter_on_vm_failure, deprecate_legacy_vote_ixs,
-    disable_deploy_of_alloc_free_syscall, disable_fees_sysvar, disable_sbpf_v0_execution,
-    disable_zk_elgamal_proof_program, enable_alt_bn128_compression_syscall,
-    enable_alt_bn128_syscall, enable_big_mod_exp_syscall,
-    enable_bpf_loader_set_authority_checked_ix, enable_extend_program_checked,
-    enable_get_epoch_stake_syscall, enable_loader_v4, enable_poseidon_syscall,
-    enable_sbpf_v1_deployment_and_execution, enable_sbpf_v2_deployment_and_execution,
-    enable_sbpf_v3_deployment_and_execution, fix_alt_bn128_multiplication_input_length,
-    formalize_loaded_transaction_data_size, get_sysvar_syscall_enabled,
-    increase_tx_account_lock_limit, last_restart_slot_sysvar, loosen_cpi_size_restriction,
-    mask_out_rent_epoch_in_vm_serialization, move_precompile_verification_to_svm,
-    move_stake_and_move_lamports_ixs, raise_cpi_nesting_limit_to_8, reenable_sbpf_v0_execution,
-    reenable_zk_elgamal_proof_program, remaining_compute_units_syscall_enabled,
-    remove_bpf_loader_incorrect_program_id, simplify_alt_bn128_syscall_error_codes,
-    stake_raise_minimum_delegation_to_1_sol, stricter_abi_and_runtime_constraints,
-};
+use agave_feature_set::{FeatureSet, enable_extend_program_checked};
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use convert_case::Casing;
@@ -38,11 +21,13 @@ use solana_account_decoder::{
 use solana_client::{
     rpc_client::SerializableTransaction,
     rpc_config::{RpcAccountInfoConfig, RpcBlockConfig, RpcTransactionLogsFilter},
+    rpc_filter::RpcFilterType,
     rpc_response::{RpcKeyedAccount, RpcLogsResponse, RpcPerfSample},
 };
 use solana_clock::{Clock, Slot};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
+use solana_epoch_schedule::EpochSchedule;
 use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
@@ -68,9 +53,8 @@ use surfpool_types::{
     AccountChange, AccountProfileState, AccountSnapshot, DEFAULT_PROFILING_MAP_CAPACITY,
     DEFAULT_SLOT_TIME_MS, ExportSnapshotConfig, ExportSnapshotScope, FifoMap, Idl,
     OverrideInstance, ProfileResult, RpcProfileDepth, RpcProfileResultConfig,
-    RunbookExecutionStatusReport, SimnetEvent, SvmFeature, SvmFeatureConfig,
-    TransactionConfirmationStatus, TransactionStatusEvent, UiAccountChange, UiAccountProfileState,
-    UiProfileResult, VersionedIdl,
+    RunbookExecutionStatusReport, SimnetEvent, SvmFeatureConfig, TransactionConfirmationStatus,
+    TransactionStatusEvent, UiAccountChange, UiAccountProfileState, UiProfileResult, VersionedIdl,
     types::{
         ComputeUnitsEstimationResult, KeyedProfileResult, UiKeyedProfileResult, UuidOrSignature,
     },
@@ -80,7 +64,7 @@ use txtx_addon_kit::{
     types::types::{AddonJsonConverter, Value},
 };
 use txtx_addon_network_svm::codec::idl::borsh_encode_value_to_idl_type;
-use txtx_addon_network_svm_types::subgraph::idl::{
+use txtx_addon_network_svm_types::idl::{
     parse_bytes_to_value_with_expected_idl_type_def_ty,
     parse_bytes_to_value_with_expected_idl_type_def_ty_with_leftover_bytes,
 };
@@ -89,7 +73,7 @@ use uuid::Uuid;
 use super::{
     AccountSubscriptionData, BlockHeader, BlockIdentifier, FINALIZATION_SLOT_THRESHOLD,
     GetAccountResult, GeyserBlockMetadata, GeyserEntryInfo, GeyserEvent, GeyserSlotStatus,
-    SLOTS_PER_EPOCH, SignatureSubscriptionData, SignatureSubscriptionType,
+    ProgramSubscriptionData, SLOTS_PER_EPOCH, SignatureSubscriptionData, SignatureSubscriptionType,
     remote::SurfnetRemoteClient,
 };
 use crate::{
@@ -101,7 +85,7 @@ use crate::{
         LogsSubscriptionData, ProfilingJob, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm
     },
     types::{
-        GeyserAccountUpdate, MintAccount, SerializableAccountAdditionalData,
+        GeyserAccountUpdate, MintAccount, OfflineAccountConfig, SerializableAccountAdditionalData,
         SurfnetTransactionStatus, SyntheticBlockhash, TokenAccount, TransactionWithStatusMeta,
     },
 };
@@ -259,6 +243,7 @@ pub struct SurfnetSvm {
     pub geyser_events_tx: Sender<GeyserEvent>,
     pub signature_subscriptions: HashMap<Signature, Vec<SignatureSubscriptionData>>,
     pub account_subscriptions: AccountSubscriptionData,
+    pub program_subscriptions: ProgramSubscriptionData,
     pub slot_subscriptions: Vec<Sender<SlotInfo>>,
     pub profile_tag_map: Box<dyn Storage<String, Vec<UuidOrSignature>>>,
     pub simulated_transaction_profiles: Box<dyn Storage<String, KeyedProfileResult>>,
@@ -294,9 +279,11 @@ pub struct SurfnetSvm {
     pub streamed_accounts: Box<dyn Storage<String, bool>>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
     pub scheduled_overrides: Box<dyn Storage<u64, Vec<OverrideInstance>>>,
-    /// Tracks accounts that have been explicitly closed by the user.
-    /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
-    pub closed_accounts: HashSet<Pubkey>,
+    /// Tracks accounts that should not be downloaded from the remote RPC.
+    /// This includes accounts explicitly closed locally and accounts marked offline via cheatcodes.
+    /// The key is the account pubkey as a string. If `include_owned_accounts` is true,
+    /// accounts owned by this pubkey are also marked offline and excluded from remote download.
+    pub offline_accounts: Box<dyn Storage<String, OfflineAccountConfig>>,
     /// The slot at which this surfnet instance started (may be non-zero when connected to remote).
     /// Used as the lower bound for block reconstruction.
     pub genesis_slot: Slot,
@@ -396,6 +383,7 @@ impl SurfnetSvm {
 
             signature_subscriptions: self.signature_subscriptions.clone(),
             account_subscriptions: self.account_subscriptions.clone(),
+            program_subscriptions: self.program_subscriptions.clone(),
             // Don't clone subscriptions - profiling clone shouldn't send notifications
             slot_subscriptions: Vec::new(),
             logs_subscriptions: Vec::new(),
@@ -418,7 +406,7 @@ impl SurfnetSvm {
             runbook_executions: self.runbook_executions.clone(),
             account_update_slots: self.account_update_slots.clone(),
             recent_blockhashes: self.recent_blockhashes.clone(),
-            closed_accounts: self.closed_accounts.clone(),
+            offline_accounts: OverlayStorage::wrap(self.offline_accounts.clone_box()),
             genesis_slot: self.genesis_slot,
             genesis_updated_at: self.genesis_updated_at,
             slot_checkpoint: OverlayStorage::wrap(self.slot_checkpoint.clone_box()),
@@ -507,6 +495,8 @@ impl SurfnetSvm {
             new_kv_store(&database_url, "streamed_accounts", surfnet_id)?;
         let scheduled_overrides_db: Box<dyn Storage<u64, Vec<OverrideInstance>>> =
             new_kv_store(&database_url, "scheduled_overrides", surfnet_id)?;
+        let offline_accounts_db: Box<dyn Storage<String, OfflineAccountConfig>> =
+            new_kv_store(&database_url, "offline_accounts", surfnet_id)?;
         let registered_idls_db: Box<dyn Storage<String, Vec<VersionedIdl>>> =
             new_kv_store(&database_url, "registered_idls", surfnet_id)?;
         let profile_tag_map_db: Box<dyn Storage<String, Vec<UuidOrSignature>>> =
@@ -586,6 +576,7 @@ impl SurfnetSvm {
             transactions_queued_for_finalization: VecDeque::new(),
             signature_subscriptions: HashMap::new(),
             account_subscriptions: HashMap::new(),
+            program_subscriptions: HashMap::new(),
             slot_subscriptions: Vec::new(),
             profile_tag_map: profile_tag_map_db,
             simulated_transaction_profiles: simulated_transaction_profiles_db,
@@ -618,7 +609,7 @@ impl SurfnetSvm {
             streamed_accounts: streamed_accounts_db,
             recent_blockhashes: VecDeque::new(),
             scheduled_overrides: scheduled_overrides_db,
-            closed_accounts: HashSet::new(),
+            offline_accounts: offline_accounts_db,
             genesis_slot: 0, // Will be updated when connecting to remote network
             genesis_updated_at: Utc::now().timestamp_millis() as u64,
             slot_checkpoint: slot_checkpoint_db,
@@ -640,108 +631,17 @@ impl SurfnetSvm {
     /// * `config` - The feature configuration specifying which features to enable/disable.
     pub fn apply_feature_config(&mut self, config: &SvmFeatureConfig) {
         // Apply explicit enables
-        for feature in &config.enable {
-            if let Some(id) = Self::feature_to_id(feature) {
-                self.feature_set.activate(&id, 0);
-            }
+        for pubkey in &config.enable {
+            self.feature_set.activate(pubkey, 0);
         }
 
         // Apply explicit disables
-        for feature in &config.disable {
-            if let Some(id) = Self::feature_to_id(feature) {
-                self.feature_set.deactivate(&id);
-            }
+        for pubkey in &config.disable {
+            self.feature_set.deactivate(pubkey);
         }
 
         // Rebuild inner VM with updated feature set
         self.inner.apply_feature_config(self.feature_set.clone());
-    }
-
-    /// Maps an SvmFeature enum variant to its corresponding feature ID (Pubkey).
-    fn feature_to_id(feature: &SvmFeature) -> Option<Pubkey> {
-        match feature {
-            SvmFeature::MovePrecompileVerificationToSvm => {
-                Some(move_precompile_verification_to_svm::id())
-            }
-            SvmFeature::StricterAbiAndRuntimeConstraints => {
-                Some(stricter_abi_and_runtime_constraints::id())
-            }
-            SvmFeature::EnableBpfLoaderSetAuthorityCheckedIx => {
-                Some(enable_bpf_loader_set_authority_checked_ix::id())
-            }
-            SvmFeature::EnableLoaderV4 => Some(enable_loader_v4::id()),
-            SvmFeature::DepleteCuMeterOnVmFailure => Some(deplete_cu_meter_on_vm_failure::id()),
-            SvmFeature::AbortOnInvalidCurve => Some(abort_on_invalid_curve::id()),
-            SvmFeature::Blake3SyscallEnabled => Some(blake3_syscall_enabled::id()),
-            SvmFeature::Curve25519SyscallEnabled => Some(curve25519_syscall_enabled::id()),
-            SvmFeature::DisableDeployOfAllocFreeSyscall => {
-                Some(disable_deploy_of_alloc_free_syscall::id())
-            }
-            SvmFeature::DisableFeesSysvar => Some(disable_fees_sysvar::id()),
-            SvmFeature::DisableSbpfV0Execution => Some(disable_sbpf_v0_execution::id()),
-            SvmFeature::EnableAltBn128CompressionSyscall => {
-                Some(enable_alt_bn128_compression_syscall::id())
-            }
-            SvmFeature::EnableAltBn128Syscall => Some(enable_alt_bn128_syscall::id()),
-            SvmFeature::EnableBigModExpSyscall => Some(enable_big_mod_exp_syscall::id()),
-            SvmFeature::EnableGetEpochStakeSyscall => Some(enable_get_epoch_stake_syscall::id()),
-            SvmFeature::EnablePoseidonSyscall => Some(enable_poseidon_syscall::id()),
-            SvmFeature::EnableSbpfV1DeploymentAndExecution => {
-                Some(enable_sbpf_v1_deployment_and_execution::id())
-            }
-            SvmFeature::EnableSbpfV2DeploymentAndExecution => {
-                Some(enable_sbpf_v2_deployment_and_execution::id())
-            }
-            SvmFeature::EnableSbpfV3DeploymentAndExecution => {
-                Some(enable_sbpf_v3_deployment_and_execution::id())
-            }
-            SvmFeature::GetSysvarSyscallEnabled => Some(get_sysvar_syscall_enabled::id()),
-            SvmFeature::LastRestartSlotSysvar => Some(last_restart_slot_sysvar::id()),
-            SvmFeature::ReenableSbpfV0Execution => Some(reenable_sbpf_v0_execution::id()),
-            SvmFeature::RemainingComputeUnitsSyscallEnabled => {
-                Some(remaining_compute_units_syscall_enabled::id())
-            }
-            SvmFeature::RemoveBpfLoaderIncorrectProgramId => {
-                Some(remove_bpf_loader_incorrect_program_id::id())
-            }
-            SvmFeature::MoveStakeAndMoveLamportsIxs => Some(move_stake_and_move_lamports_ixs::id()),
-            SvmFeature::StakeRaiseMinimumDelegationTo1Sol => {
-                Some(stake_raise_minimum_delegation_to_1_sol::id())
-            }
-            SvmFeature::DeprecateLegacyVoteIxs => Some(deprecate_legacy_vote_ixs::id()),
-            SvmFeature::MaskOutRentEpochInVmSerialization => {
-                Some(mask_out_rent_epoch_in_vm_serialization::id())
-            }
-            SvmFeature::SimplifyAltBn128SyscallErrorCodes => {
-                Some(simplify_alt_bn128_syscall_error_codes::id())
-            }
-            SvmFeature::FixAltBn128MultiplicationInputLength => {
-                Some(fix_alt_bn128_multiplication_input_length::id())
-            }
-            SvmFeature::IncreaseTxAccountLockLimit => Some(increase_tx_account_lock_limit::id()),
-            SvmFeature::EnableExtendProgramChecked => Some(enable_extend_program_checked::id()),
-            SvmFeature::FormalizeLoadedTransactionDataSize => {
-                Some(formalize_loaded_transaction_data_size::id())
-            }
-            SvmFeature::DisableZkElgamalProofProgram => {
-                Some(disable_zk_elgamal_proof_program::id())
-            }
-            SvmFeature::ReenableZkElgamalProofProgram => {
-                Some(reenable_zk_elgamal_proof_program::id())
-            }
-            SvmFeature::RaiseCpiNestingLimitTo8 => Some(raise_cpi_nesting_limit_to_8::id()),
-            // Features not yet available in agave-feature-set 3.0.0 - will be added when upgrading
-            SvmFeature::AccountDataDirectMapping => None, // bpf_account_data_direct_mapping
-            SvmFeature::ProvideInstructionDataOffsetInVmR2 => None, // provide_instruction_data_offset_in_vm_r2
-            SvmFeature::IncreaseCpiAccountInfoLimit => None, // increase_cpi_account_info_limit
-            SvmFeature::VoteStateV4 => None,                 // vote_state_v4
-            SvmFeature::PoseidonEnforcePadding => None,      // poseidon_enforce_padding
-            SvmFeature::FixAltBn128PairingLengthCheck => None, // fix_alt_bn128_pairing_length_check
-            SvmFeature::LiftCpiCallerRestriction => None,    // lift_cpi_caller_restriction
-            SvmFeature::RemoveAccountsExecutableFlagChecks => None, // remove_accounts_executable_flag_checks
-            SvmFeature::LoosenCpiSizeRestriction => Some(loosen_cpi_size_restriction::id()),
-            SvmFeature::DisableRentFeesCollection => None, // disable_rent_fees_collection
-        }
     }
 
     pub fn increment_write_version(&mut self) -> u64 {
@@ -760,6 +660,7 @@ impl SurfnetSvm {
     pub fn initialize(
         &mut self,
         epoch_info: EpochInfo,
+        epoch_schedule: EpochSchedule,
         slot_time: u64,
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
@@ -782,6 +683,8 @@ impl SurfnetSvm {
         for (_, template) in registry.templates.into_iter() {
             let _ = self.register_idl(template.idl, None);
         }
+
+        self.inner.set_sysvar(&epoch_schedule);
 
         if let Some(remote_client) = remote_ctx {
             let _ = self
@@ -1012,6 +915,9 @@ impl SurfnetSvm {
     }
 
     pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
+        // Currently, liteSVM doesn't create feature gate accounts and store them in the vm,
+        // so when a user is fetching one, we make one on the fly.
+        // TODO: remove once https://github.com/LiteSVM/litesvm/pull/308 is released
         self.feature_set.active().get(pubkey).map(|_| {
             let feature_bytes = bincode::serialize(&FEATURE).unwrap();
             let lamports = self
@@ -1234,6 +1140,35 @@ impl SurfnetSvm {
         }
     }
 
+    /// Verifies the signature of a transaction and validates that it hasn't already been processed.
+    /// ### Note
+    /// LiteSVM also can do this for our transactions, but we disable it.
+    /// If sigverify is enabled at the LiteSVM level, the transaction simulations are always verified as well.
+    /// So, if the user is trying to skip signature verification for a simulation, we'd need to unset and set this value,
+    /// requiring a mutable reference to the SVM, which we don't have/want in the simulation path.
+    /// Additionally, having this function internally lets us do this check before we start fetching accounts from mainnet.
+    pub fn sigverify(&self, tx: &VersionedTransaction) -> Result<(), FailedTransactionMetadata> {
+        let signature = tx.signatures[0];
+
+        if tx.verify_with_results().iter().any(|valid| !*valid) {
+            return Err(FailedTransactionMetadata {
+                err: TransactionError::SignatureFailure,
+                meta: TransactionMetadata::default(),
+            });
+        }
+
+        if matches!(
+            self.transactions.get(&signature.to_string()),
+            Ok(Some(SurfnetTransactionStatus::Processed(_)))
+        ) {
+            return Err(FailedTransactionMetadata {
+                err: TransactionError::AlreadyProcessed,
+                meta: TransactionMetadata::default(),
+            });
+        }
+        Ok(())
+    }
+
     /// Sets an account in the local SVM state and notifies listeners.
     ///
     /// # Arguments
@@ -1255,6 +1190,9 @@ impl SurfnetSvm {
 
         // Notify account subscribers
         self.notify_account_subscribers(pubkey, &account);
+
+        // Notify program subscribers
+        self.notify_program_subscribers(pubkey, &account);
 
         let _ = self
             .simnet_events_tx
@@ -1281,7 +1219,12 @@ impl SurfnetSvm {
         }
 
         if is_deleted_account {
-            self.closed_accounts.insert(*pubkey);
+            self.offline_accounts.store(
+                pubkey.to_string(),
+                OfflineAccountConfig {
+                    include_owned_accounts: false,
+                },
+            )?;
             if let Some(old_account) = self.get_account(pubkey)? {
                 self.remove_from_indexes(pubkey, &old_account)?;
             }
@@ -1523,6 +1466,14 @@ impl SurfnetSvm {
         self.latest_epoch_info = epoch_info.clone();
         // Set genesis_slot to the current slot when resetting (similar to initialize)
         self.genesis_slot = epoch_info.absolute_slot;
+        let chain_tip_hash = SyntheticBlockhash::new(epoch_info.block_height).to_string();
+        self.chain_tip = BlockIdentifier::new(epoch_info.block_height, chain_tip_hash.as_str());
+        // Rebuild sysvars so getLatestBlockhash / sendTransaction stay aligned after reset.
+        self.reconstruct_sysvars();
+        // Reset checkpoint state to avoid recovering stale chain tips after a reset.
+        self.slot_checkpoint.clear()?;
+        self.last_checkpoint_slot = self.genesis_slot;
+        self.recent_blockhashes.clear();
 
         Ok(())
     }
@@ -1590,11 +1541,8 @@ impl SurfnetSvm {
         cu_analysis_enabled: bool,
         sigverify: bool,
     ) -> TransactionResult {
-        if sigverify && tx.verify_with_results().iter().any(|valid| !*valid) {
-            return Err(FailedTransactionMetadata {
-                err: TransactionError::SignatureFailure,
-                meta: TransactionMetadata::default(),
-            });
+        if sigverify {
+            self.sigverify(&tx)?;
         }
 
         if cu_analysis_enabled {
@@ -1697,11 +1645,8 @@ impl SurfnetSvm {
         tx: VersionedTransaction,
         sigverify: bool,
     ) -> Result<SimulatedTransactionInfo, FailedTransactionMetadata> {
-        if sigverify && tx.verify_with_results().iter().any(|valid| !*valid) {
-            return Err(FailedTransactionMetadata {
-                err: TransactionError::SignatureFailure,
-                meta: TransactionMetadata::default(),
-            });
+        if sigverify {
+            self.sigverify(&tx)?;
         }
 
         if !self.validate_transaction_blockhash(&tx) {
@@ -1846,7 +1791,7 @@ impl SurfnetSvm {
             };
             let mut data = bincode::serialize(&programdata_state).unwrap();
 
-            data.extend_from_slice(&include_bytes!("../tests/assets/minimum_program.so").to_vec());
+            data.extend_from_slice(crate::surfnet::noop_program::NOOP_PROGRAM_ELF);
             let lamports = self.inner.minimum_balance_for_rent_exemption(data.len());
             Some((
                 programdata_address,
@@ -2471,6 +2416,20 @@ impl SurfnetSvm {
         rx
     }
 
+    pub fn subscribe_for_program_updates(
+        &mut self,
+        program_id: &Pubkey,
+        encoding: Option<UiAccountEncoding>,
+        filters: Option<Vec<RpcFilterType>>,
+    ) -> Receiver<RpcKeyedAccount> {
+        let (tx, rx) = unbounded();
+        self.program_subscriptions
+            .entry(*program_id)
+            .or_default()
+            .push((encoding, filters, tx));
+        rx
+    }
+
     /// Notifies signature subscribers of a status update, sending slot and error info.
     ///
     /// # Arguments
@@ -2528,6 +2487,47 @@ impl SurfnetSvm {
             if !remaining.is_empty() {
                 self.account_subscriptions
                     .insert(*account_updated_pubkey, remaining);
+            }
+        }
+    }
+
+    pub fn notify_program_subscribers(&mut self, account_pubkey: &Pubkey, account: &Account) {
+        let program_id = account.owner;
+        let mut remaining = vec![];
+        if let Some(subscriptions) = self.program_subscriptions.remove(&program_id) {
+            for (encoding, filters, tx) in subscriptions {
+                // Apply filters if present
+                if let Some(ref active_filters) = filters {
+                    match super::locker::apply_rpc_filters(&account.data, active_filters) {
+                        Ok(true) => {} // Account matches all filters
+                        Ok(false) => {
+                            // Filtered out - keep subscription active but don't notify
+                            remaining.push((encoding, filters, tx));
+                            continue;
+                        }
+                        Err(_) => {
+                            // Error applying filter - keep subscription, skip notification
+                            remaining.push((encoding, filters, tx));
+                            continue;
+                        }
+                    }
+                }
+
+                let config = RpcAccountInfoConfig {
+                    encoding,
+                    ..Default::default()
+                };
+                let keyed_account =
+                    self.account_to_rpc_keyed_account(account_pubkey, account, &config, None);
+                if tx.send(keyed_account).is_err() {
+                    // The receiver has been dropped, so we can skip notifying
+                    continue;
+                } else {
+                    remaining.push((encoding, filters, tx));
+                }
+            }
+            if !remaining.is_empty() {
+                self.program_subscriptions.insert(program_id, remaining);
             }
         }
     }
@@ -3428,6 +3428,13 @@ impl SurfnetSvm {
 
 #[cfg(test)]
 mod tests {
+    use agave_feature_set::{
+        blake3_syscall_enabled, curve25519_syscall_enabled, disable_fees_sysvar,
+        enable_extend_program_checked, enable_loader_v4, enable_sbpf_v1_deployment_and_execution,
+        enable_sbpf_v2_deployment_and_execution, enable_sbpf_v3_deployment_and_execution,
+        formalize_loaded_transaction_data_size, move_precompile_verification_to_svm,
+        raise_cpi_nesting_limit_to_8,
+    };
     use base64::{Engine, engine::general_purpose};
     use borsh::BorshSerialize;
     // use test_log::test; // uncomment to get logs from litesvm
@@ -3835,7 +3842,7 @@ mod tests {
             )
             .unwrap();
 
-            let mut bin = include_bytes!("../tests/assets/minimum_program.so").to_vec();
+            let mut bin = crate::surfnet::noop_program::NOOP_PROGRAM_ELF.to_vec();
             data.append(&mut bin); // push our binary after the state data
             let lamports = svm.inner.minimum_balance_for_rent_exemption(data.len());
             let default_program_data_account = Account {
@@ -4206,50 +4213,6 @@ mod tests {
 
     // Feature configuration tests
 
-    #[test]
-    fn test_feature_to_id_all_features_have_mapping() {
-        // Track features with and without mappings
-        // Some features return None because they're not yet available in agave-feature-set 3.0.0
-        let mut mapped_count = 0;
-        let mut unmapped_features = Vec::new();
-
-        for feature in SvmFeature::all() {
-            let id = SurfnetSvm::feature_to_id(&feature);
-            if id.is_some() {
-                mapped_count += 1;
-            } else {
-                unmapped_features.push(feature);
-            }
-        }
-
-        // Currently 9 features return None (not available in agave-feature-set 3.0.0):
-        // AccountDataDirectMapping, ProvideInstructionDataOffsetInVmR2, IncreaseCpiAccountInfoLimit,
-        // VoteStateV4, PoseidonEnforcePadding, FixAltBn128PairingLengthCheck, LiftCpiCallerRestriction,
-        // RemoveAccountsExecutableFlagChecks, DisableRentFeesCollection
-        assert_eq!(
-            unmapped_features.len(),
-            9,
-            "Expected 9 unmapped features (pending agave-feature-set upgrade), found: {:?}",
-            unmapped_features
-        );
-        assert_eq!(mapped_count, 37, "Expected 37 mapped features");
-    }
-
-    #[test]
-    fn test_feature_to_id_returns_valid_pubkeys() {
-        // Spot check a few known features
-        let loader_v4_id = SurfnetSvm::feature_to_id(&SvmFeature::EnableLoaderV4);
-        assert!(loader_v4_id.is_some());
-        assert_ne!(loader_v4_id.unwrap(), Pubkey::default());
-
-        let disable_fees_id = SurfnetSvm::feature_to_id(&SvmFeature::DisableFeesSysvar);
-        assert!(disable_fees_id.is_some());
-        assert_ne!(disable_fees_id.unwrap(), Pubkey::default());
-
-        // Different features should have different IDs
-        assert_ne!(loader_v4_id, disable_fees_id);
-    }
-
     #[test_case(TestType::sqlite(); "with on-disk sqlite db")]
     #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
     #[test_case(TestType::no_db(); "with no db")]
@@ -4275,7 +4238,7 @@ mod tests {
         assert!(!svm.feature_set.is_active(&feature_id));
 
         // Now enable it via config
-        let config = SvmFeatureConfig::new().enable(SvmFeature::EnableLoaderV4);
+        let config = SvmFeatureConfig::new().enable(enable_loader_v4::id());
         svm.apply_feature_config(&config);
 
         assert!(svm.feature_set.is_active(&feature_id));
@@ -4293,7 +4256,7 @@ mod tests {
         assert!(svm.feature_set.is_active(&feature_id));
 
         // Now disable it via config
-        let config = SvmFeatureConfig::new().disable(SvmFeature::DisableFeesSysvar);
+        let config = SvmFeatureConfig::new().disable(disable_fees_sysvar::id());
         svm.apply_feature_config(&config);
 
         assert!(!svm.feature_set.is_active(&feature_id));
@@ -4354,8 +4317,7 @@ mod tests {
         let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         // Start with mainnet defaults, but enable loader v4
-        let config =
-            SvmFeatureConfig::default_mainnet_features().enable(SvmFeature::EnableLoaderV4);
+        let config = SvmFeatureConfig::default_mainnet_features().enable(enable_loader_v4::id());
 
         svm.apply_feature_config(&config);
 
@@ -4378,10 +4340,10 @@ mod tests {
         let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let config = SvmFeatureConfig::new()
-            .enable(SvmFeature::EnableLoaderV4)
-            .enable(SvmFeature::EnableSbpfV2DeploymentAndExecution)
-            .disable(SvmFeature::DisableFeesSysvar)
-            .disable(SvmFeature::Blake3SyscallEnabled);
+            .enable(enable_loader_v4::id())
+            .enable(enable_sbpf_v2_deployment_and_execution::id())
+            .disable(disable_fees_sysvar::id())
+            .disable(blake3_syscall_enabled::id());
 
         svm.apply_feature_config(&config);
 
@@ -4409,7 +4371,7 @@ mod tests {
                 .is_some()
         );
 
-        let config = SvmFeatureConfig::new().disable(SvmFeature::DisableFeesSysvar);
+        let config = SvmFeatureConfig::new().disable(disable_fees_sysvar::id());
         svm.apply_feature_config(&config);
 
         // Native mint should still exist after (re-added in apply_feature_config)
@@ -4429,8 +4391,8 @@ mod tests {
         let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
         let config = SvmFeatureConfig::new()
-            .enable(SvmFeature::EnableLoaderV4)
-            .disable(SvmFeature::DisableFeesSysvar);
+            .enable(enable_loader_v4::id())
+            .disable(disable_fees_sysvar::id());
 
         // Apply twice
         svm.apply_feature_config(&config);
@@ -4464,14 +4426,22 @@ mod tests {
         svm.set_account(&account_pubkey, account.clone()).unwrap();
 
         assert!(svm.get_account(&account_pubkey).unwrap().is_some());
-        assert!(!svm.closed_accounts.contains(&account_pubkey));
+        assert!(
+            !svm.offline_accounts
+                .contains_key(&account_pubkey.to_string())
+                .unwrap()
+        );
         assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 1);
 
         let empty_account = Account::default();
         svm.update_account_registries(&account_pubkey, &empty_account)
             .unwrap();
 
-        assert!(svm.closed_accounts.contains(&account_pubkey));
+        assert!(
+            svm.offline_accounts
+                .contains_key(&account_pubkey.to_string())
+                .unwrap()
+        );
 
         assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 0);
 
@@ -4519,13 +4489,21 @@ mod tests {
             1
         );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 1);
-        assert!(!svm.closed_accounts.contains(&token_account_pubkey));
+        assert!(
+            !svm.offline_accounts
+                .contains_key(&token_account_pubkey.to_string())
+                .unwrap()
+        );
 
         let empty_account = Account::default();
         svm.update_account_registries(&token_account_pubkey, &empty_account)
             .unwrap();
 
-        assert!(svm.closed_accounts.contains(&token_account_pubkey));
+        assert!(
+            svm.offline_accounts
+                .contains_key(&token_account_pubkey.to_string())
+                .unwrap()
+        );
 
         assert_eq!(
             svm.get_token_accounts_by_owner(&token_owner).unwrap().len(),

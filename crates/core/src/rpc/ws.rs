@@ -14,9 +14,10 @@ use jsonrpc_pubsub::{
 use solana_account_decoder::{UiAccount, UiAccountEncoding};
 use solana_client::{
     rpc_config::{RpcSignatureSubscribeConfig, RpcTransactionConfig, RpcTransactionLogsFilter},
+    rpc_filter::RpcFilterType,
     rpc_response::{
-        ProcessedSignatureResult, ReceivedSignatureResult, RpcLogsResponse, RpcResponseContext,
-        RpcSignatureResult,
+        ProcessedSignatureResult, ReceivedSignatureResult, RpcKeyedAccount, RpcLogsResponse,
+        RpcResponseContext, RpcSignatureResult,
     },
 };
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
@@ -58,6 +59,15 @@ pub struct RpcAccountSubscribeConfig {
     #[serde(flatten)]
     pub commitment: Option<CommitmentConfig>,
     pub encoding: Option<UiAccountEncoding>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcProgramSubscribeConfig {
+    #[serde(flatten)]
+    pub commitment: Option<CommitmentConfig>,
+    pub encoding: Option<UiAccountEncoding>,
+    pub filters: Option<Vec<RpcFilterType>>,
 }
 
 #[rpc]
@@ -592,17 +602,147 @@ pub trait Rpc {
         subscription: SubscriptionId,
     ) -> Result<bool>;
 
+    /// Subscribe to notifications for all accounts owned by a specific program via WebSocket.
+    ///
+    /// This method allows clients to subscribe to updates for any account whose `owner`
+    /// matches the given program ID. Notifications are sent whenever an account owned by
+    /// the program is created, updated, or deleted.
+    ///
+    /// ## Parameters
+    /// - `meta`: WebSocket metadata containing RPC context and connection information.
+    /// - `subscriber`: The subscription sink for sending program account notifications to the client.
+    /// - `pubkey_str`: The program public key to monitor, as a base-58 encoded string.
+    /// - `config`: Optional configuration specifying commitment level, encoding format, and filters.
+    ///
+    /// ## Returns
+    /// This method does not return a value directly. Instead, it establishes a continuous WebSocket
+    /// subscription that will send `RpcResponse<RpcKeyedAccount>` notifications to the subscriber
+    /// whenever an account owned by the program changes.
+    ///
+    /// ## Filters
+    /// The optional config may include filters to narrow which account updates trigger notifications:
+    /// - `dataSize`: Only notify for accounts with a specific data length (in bytes).
+    /// - `memcmp`: Only notify for accounts whose data matches specific bytes at a given offset.
+    ///
+    /// ## Example WebSocket Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "programSubscribe",
+    ///   "params": [
+    ///     "11111111111111111111111111111111",
+    ///     {
+    ///       "encoding": "base64",
+    ///       "filters": [
+    ///         { "dataSize": 80 }
+    ///       ]
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Response (Subscription Confirmation)
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": 24040,
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Notification
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "method": "programNotification",
+    ///   "params": {
+    ///     "result": {
+    ///       "context": { "slot": 5208469 },
+    ///       "value": {
+    ///         "pubkey": "H4vnBqifaSACnKa7acsxstsY1iV1bvJNxsCY7enrd1hq",
+    ///         "account": {
+    ///           "data": ["base64data", "base64"],
+    ///           "executable": false,
+    ///           "lamports": 33594,
+    ///           "owner": "11111111111111111111111111111111",
+    ///           "rentEpoch": 636,
+    ///           "space": 36
+    ///         }
+    ///       }
+    ///     },
+    ///     "subscription": 24040
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// ## Notes
+    /// - The subscription remains active until explicitly unsubscribed or the connection is closed.
+    /// - Notifications include both the account pubkey and the full account data.
+    /// - Invalid public key formats will cause the subscription to be rejected with an error.
+    /// - Each subscription runs in its own async task for optimal performance.
+    ///
+    /// ## See Also
+    /// - `programUnsubscribe`: Remove an active program subscription
+    /// - `getProgramAccounts`: Get current accounts for a program
     #[pubsub(
         subscription = "programNotification",
         subscribe,
         name = "programSubscribe"
     )]
-    fn program_subscribe(&self, meta: Self::Metadata, subscriber: Subscriber<RpcResponse<()>>);
+    fn program_subscribe(
+        &self,
+        meta: Self::Metadata,
+        subscriber: Subscriber<RpcResponse<RpcKeyedAccount>>,
+        pubkey_str: String,
+        config: Option<RpcProgramSubscribeConfig>,
+    );
 
+    /// Unsubscribe from program account change notifications.
+    ///
+    /// This method removes an active program subscription, stopping further notifications
+    /// for the specified subscription ID. The monitoring task will automatically terminate
+    /// when the subscription is removed.
+    ///
+    /// ## Parameters
+    /// - `meta`: Optional WebSocket metadata containing connection information.
+    /// - `subscription`: The subscription ID to remove, as returned by `programSubscribe`.
+    ///
+    /// ## Returns
+    /// A `Result<bool>` indicating whether the unsubscription was successful:
+    /// - `Ok(true)` if the subscription was successfully removed
+    /// - `Err(Error)` with `InternalError` if the subscription map lock could not be acquired
+    ///
+    /// ## Example WebSocket Request
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "id": 1,
+    ///   "method": "programUnsubscribe",
+    ///   "params": [24040]
+    /// }
+    /// ```
+    ///
+    /// ## Example WebSocket Response
+    /// ```json
+    /// {
+    ///   "jsonrpc": "2.0",
+    ///   "result": true,
+    ///   "id": 1
+    /// }
+    /// ```
+    ///
+    /// ## Notes
+    /// - Successfully unsubscribed connections will no longer receive program account notifications.
+    /// - The monitoring task automatically detects subscription removal and terminates gracefully.
+    /// - This method is thread-safe and can be called concurrently.
+    ///
+    /// ## See Also
+    /// - `programSubscribe`: Create a program account change subscription
     #[pubsub(
         subscription = "programNotification",
         unsubscribe,
-        name = "ProgramUnsubscribe"
+        name = "programUnsubscribe"
     )]
     fn program_unsubscribe(
         &self,
@@ -824,6 +964,8 @@ pub struct SurfpoolWsRpc {
         Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcSignatureResult>>>>>,
     pub account_subscription_map:
         Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<UiAccount>>>>>,
+    pub program_subscription_map:
+        Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcKeyedAccount>>>>>,
     pub slot_subscription_map: Arc<RwLock<HashMap<SubscriptionId, Sink<SlotInfo>>>>,
     pub logs_subscription_map:
         Arc<RwLock<HashMap<SubscriptionId, Sink<RpcResponse<RpcLogsResponse>>>>>,
@@ -1464,17 +1606,168 @@ impl Rpc for SurfpoolWsRpc {
         Ok(true)
     }
 
-    fn program_subscribe(&self, meta: Self::Metadata, _subscriber: Subscriber<RpcResponse<()>>) {
+    /// Implementation of program subscription for WebSocket clients.
+    ///
+    /// This method handles the complete lifecycle of program subscriptions:
+    /// 1. Validates the provided program public key string format
+    /// 2. Parses the subscription configuration (commitment, encoding, and filters)
+    /// 3. Generates a unique subscription ID and assigns it to the subscriber
+    /// 4. Spawns an async task to continuously monitor account changes for the program
+    /// 5. Sends notifications whenever an account owned by the program changes and matches filters
+    ///
+    /// # Monitoring Loop
+    /// The spawned task runs a continuous loop that:
+    /// - Checks if the subscription is still active (not unsubscribed)
+    /// - Polls for program account updates from the SVM
+    /// - Applies configured filters (dataSize, memcmp) before notifying
+    /// - Sends `RpcKeyedAccount` notifications (including account pubkey) to the subscriber
+    /// - Automatically terminates when the subscription is removed
+    ///
+    /// # Error Handling
+    /// - Rejects subscription with `InvalidParams` for malformed public keys
+    /// - Handles encoding configuration for account data serialization
+    /// - Manages subscription cleanup through the monitoring loop
+    ///
+    /// # Performance
+    /// Uses efficient polling with minimal CPU overhead and automatic
+    /// cleanup when subscriptions are no longer needed.
+    fn program_subscribe(
+        &self,
+        meta: Self::Metadata,
+        subscriber: Subscriber<RpcResponse<RpcKeyedAccount>>,
+        pubkey_str: String,
+        config: Option<RpcProgramSubscribeConfig>,
+    ) {
         let _ = meta
             .as_ref()
-            .map(|m| m.log_warn("Websocket method 'program_subscribe' is uninmplemented"));
+            .map(|m| m.log_debug("Websocket 'program_subscribe' connection established"));
+
+        let program_id = match Pubkey::from_str(&pubkey_str) {
+            Ok(pk) => pk,
+            Err(_) => {
+                let error = Error {
+                    code: ErrorCode::InvalidParams,
+                    message: "Invalid pubkey format.".into(),
+                    data: None,
+                };
+                if subscriber.reject(error.clone()).is_err() {
+                    log::error!("Failed to reject subscriber for invalid pubkey format.");
+                }
+                return;
+            }
+        };
+
+        let config = config.unwrap_or_default();
+
+        let id = self.uid.fetch_add(1, atomic::Ordering::SeqCst);
+        let sub_id = SubscriptionId::Number(id as u64);
+        let sink = match subscriber.assign_id(sub_id.clone()) {
+            Ok(sink) => sink,
+            Err(e) => {
+                log::error!("Failed to assign subscription ID: {:?}", e);
+                return;
+            }
+        };
+
+        let program_active = Arc::clone(&self.program_subscription_map);
+        let meta = meta.clone();
+        let svm_locker = match meta.get_svm_locker() {
+            Ok(locker) => locker,
+            Err(e) => {
+                log::error!("Failed to get SVM locker for program subscription: {e}");
+                if let Err(e) = sink.notify(Err(e.into())) {
+                    log::error!(
+                        "Failed to send error notification to client for SVM locker failure: {e}"
+                    );
+                }
+                return;
+            }
+        };
+        let slot = svm_locker.with_svm_reader(|svm| svm.get_latest_absolute_slot());
+
+        self.tokio_handle.spawn(async move {
+            if let Ok(mut guard) = program_active.write() {
+                guard.insert(sub_id.clone(), sink);
+            } else {
+                log::error!("Failed to acquire write lock on program_subscription_map");
+                return;
+            }
+
+            let rx = svm_locker.subscribe_for_program_updates(
+                &program_id,
+                config.encoding,
+                config.filters,
+            );
+
+            loop {
+                // if the subscription has been removed, break the loop
+                if let Ok(guard) = program_active.read() {
+                    if guard.get(&sub_id).is_none() {
+                        break;
+                    }
+                } else {
+                    log::error!("Failed to acquire read lock on program_subscription_map");
+                    break;
+                }
+
+                let Ok(keyed_account) = rx.try_recv() else {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    continue;
+                };
+
+                let Ok(guard) = program_active.read() else {
+                    log::error!("Failed to acquire read lock on program_subscription_map");
+                    break;
+                };
+
+                let Some(sink) = guard.get(&sub_id) else {
+                    log::error!("Failed to get sink for subscription ID");
+                    break;
+                };
+
+                if let Err(e) = sink.notify(Ok(RpcResponse {
+                    context: RpcResponseContext::new(slot),
+                    value: keyed_account,
+                })) {
+                    log::error!("Failed to notify client about program account update: {e}");
+                    break;
+                }
+            }
+        });
     }
 
+    /// Implementation of program unsubscription for WebSocket clients.
+    ///
+    /// This method removes an active program subscription from the internal
+    /// tracking maps, effectively stopping further notifications for that subscription.
+    /// The monitoring loop in the corresponding subscription task will detect this
+    /// removal and automatically terminate.
+    ///
+    /// # Implementation Details
+    /// - Attempts to remove the subscription from the program subscriptions map
+    /// - Returns success if the subscription existed and was removed
+    /// - Returns an error if the lock could not be acquired
+    /// - The removal triggers automatic cleanup of the monitoring task
+    ///
+    /// # Thread Safety
+    /// Uses write locks to ensure thread-safe removal from the subscription map.
+    /// The monitoring task uses read locks to check subscription status, creating
+    /// a clean synchronization pattern.
     fn program_unsubscribe(
         &self,
         _meta: Option<Self::Metadata>,
-        _subscription: SubscriptionId,
+        subscription: SubscriptionId,
     ) -> Result<bool> {
+        if let Ok(mut guard) = self.program_subscription_map.write() {
+            guard.remove(&subscription);
+        } else {
+            log::error!("Failed to acquire write lock on program_subscription_map");
+            return Err(Error {
+                code: ErrorCode::InternalError,
+                message: "Internal error.".into(),
+                data: None,
+            });
+        };
         Ok(true)
     }
 

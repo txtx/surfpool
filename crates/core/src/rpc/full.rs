@@ -947,7 +947,7 @@ pub trait Full {
     /// - `address`: The base-58 encoded address to query.
     /// - `config` (optional): Configuration object with the following fields:
     ///   - `before`: Start search before this signature.
-    ///   - `until`: Search until this signature (inclusive).
+    ///   - `until`: Search until this signature (exclusive).
     ///   - `limit`: Maximum number of results to return (default: 1,000; max: 1,000).
     ///   - `commitment`: The level of commitment desired (e.g., finalized).
     ///   - `minContextSlot`: The minimum slot that the query should be evaluated at.
@@ -1667,16 +1667,21 @@ impl Full for SurfpoolFullRpc {
         }
 
         let tx_encoding = config.encoding.unwrap_or(UiTransactionEncoding::Base58);
-        let binary_encoding = tx_encoding
-            .into_binary_encoding()
-            .ok_or_else(|| {
-                Error::invalid_params(format!(
-                    "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
-                ))
-            })
-            .unwrap();
+        let binary_encoding = match tx_encoding.into_binary_encoding() {
+            Some(binary_encoding) => binary_encoding,
+            None => {
+                return Box::pin(async move {
+                    Err(Error::invalid_params(format!(
+                        "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
+                    )))
+                });
+            }
+        };
         let (_, mut unsanitized_tx) =
-            decode_and_deserialize::<VersionedTransaction>(data, binary_encoding).unwrap();
+            match decode_and_deserialize::<VersionedTransaction>(data, binary_encoding) {
+                Ok(res) => res,
+                Err(e) => return Box::pin(async move { Err(e) }),
+            };
 
         let SurfnetRpcContext {
             svm_locker,
@@ -2287,16 +2292,38 @@ impl Full for SurfpoolFullRpc {
         &self,
         meta: Self::Metadata,
         encoded: String,
-        _config: Option<RpcContextConfig>, // TODO: use config
+        config: Option<RpcContextConfig>,
     ) -> Result<RpcResponse<Option<u64>>> {
         let (_, message) =
             decode_and_deserialize::<VersionedMessage>(encoded, TransactionBinaryEncoding::Base64)?;
 
-        meta.with_svm_reader(|svm_reader| RpcResponse {
-            context: RpcResponseContext::new(svm_reader.get_latest_absolute_slot()),
+        let RpcContextConfig {
+            commitment,
+            min_context_slot,
+        } = config.unwrap_or_default();
+        let min_ctx_slot = min_context_slot.unwrap_or_default();
+
+        let svm_locker = meta.get_svm_locker()?;
+
+        let slot = if let Some(commitment_config) = commitment {
+            svm_locker.get_slot_for_commitment(&commitment_config)
+        } else {
+            svm_locker.get_latest_absolute_slot()
+        };
+
+        if let Some(min_slot) = min_context_slot
+            && slot < min_slot
+        {
+            return Err(RpcCustomError::MinContextSlotNotReached {
+                context_slot: min_ctx_slot,
+            }
+            .into());
+        }
+
+        Ok(RpcResponse {
+            context: RpcResponseContext::new(slot),
             value: Some((message.header().num_required_signatures as u64) * 5000),
         })
-        .map_err(Into::into)
     }
 
     fn get_stake_minimum_delegation(
@@ -2504,6 +2531,7 @@ mod tests {
     use std::thread::JoinHandle;
 
     use base64::{Engine, prelude::BASE64_STANDARD};
+    use bincode::Options;
     use crossbeam_channel::Receiver;
     use solana_account_decoder::{UiAccount, UiAccountData, UiAccountEncoding};
     use solana_client::rpc_config::RpcSimulateTransactionAccountsConfig;
@@ -2516,7 +2544,10 @@ mod tests {
     };
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
-    use solana_system_interface::{instruction as system_instruction, program as system_program};
+    use solana_system_interface::{
+        instruction::{self as system_instruction, transfer},
+        program as system_program,
+    };
     use solana_transaction::{
         Transaction,
         versioned::{Legacy, TransactionVersion},
@@ -2638,6 +2669,115 @@ mod tests {
         } else {
             assert!(res.is_ok());
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_fee_for_message() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+        let runloop_context = setup.context;
+        let rpc_server = setup.rpc;
+        let payer = Keypair::new();
+        let recipient = Pubkey::new_unique();
+        let lamports_to_send = 5 * LAMPORTS_PER_SOL;
+        let commitment_config_to_use = CommitmentConfig::confirmed();
+
+        let wrong_comm_min_ctx_slot = runloop_context
+            .svm_locker
+            .get_slot_for_commitment(&commitment_config_to_use)
+            + 10;
+
+        let wrong_min_slot = runloop_context.svm_locker.get_latest_absolute_slot() + 10;
+        let rpc_ctx_config_with_wrong_commitment = RpcContextConfig {
+            commitment: Some(commitment_config_to_use),
+            min_context_slot: Some(wrong_comm_min_ctx_slot),
+        };
+        let rpc_ctx_config_with_wrong_min_slot = RpcContextConfig {
+            commitment: None,
+            min_context_slot: Some(wrong_min_slot),
+        };
+
+        let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+
+        let latest_blockhash = runloop_context
+            .svm_locker
+            .with_svm_reader(|svm| svm.latest_blockhash());
+        let message = solana_message::Message::new_with_blockhash(
+            &[instruction],
+            Some(&payer.pubkey()),
+            &latest_blockhash,
+        );
+        let num_required_signatures = message.header.num_required_signatures as u64;
+        let transaction =
+            VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
+
+        let message_bytes = bincode::options()
+            .with_fixint_encoding()
+            .serialize(&transaction.message)
+            .expect("message serialization");
+        let encoded_message = base64::engine::general_purpose::STANDARD.encode(&message_bytes);
+
+        let get_fee_with_correct_config_pass_result = rpc_server.get_fee_for_message(
+            Some(runloop_context.clone()),
+            encoded_message.clone(),
+            None,
+        );
+
+        assert!(
+            get_fee_with_correct_config_pass_result.is_ok(),
+            "Expected get_fee_for_message to pass with correct configs"
+        );
+        assert_eq!(
+            get_fee_with_correct_config_pass_result
+                .unwrap()
+                .value
+                .unwrap(),
+            (num_required_signatures as u64) * 5_000,
+            "Invalid return value"
+        );
+
+        let get_fee_with_wrong_commitment_fail_result = rpc_server.get_fee_for_message(
+            Some(runloop_context.clone()),
+            encoded_message.clone(),
+            Some(rpc_ctx_config_with_wrong_commitment),
+        );
+
+        let wrong_comm_expected_err: Result<()> = Result::Err(
+            RpcCustomError::MinContextSlotNotReached {
+                context_slot: wrong_comm_min_ctx_slot,
+            }
+            .into(),
+        );
+
+        assert!(
+            get_fee_with_wrong_commitment_fail_result.is_err(),
+            "expected this txn to fail when min_ctx_slot > slot_for_commitment"
+        );
+
+        assert_eq!(
+            get_fee_with_wrong_commitment_fail_result.err().unwrap(),
+            wrong_comm_expected_err.err().unwrap()
+        );
+
+        let get_fee_with_wrong_mint_slot_fail_result = rpc_server.get_fee_for_message(
+            Some(runloop_context.clone()),
+            encoded_message,
+            Some(rpc_ctx_config_with_wrong_min_slot),
+        );
+
+        let wrong_min_slot_expected_err: Result<()> = Result::Err(
+            RpcCustomError::MinContextSlotNotReached {
+                context_slot: wrong_min_slot,
+            }
+            .into(),
+        );
+        assert!(
+            get_fee_with_wrong_mint_slot_fail_result.is_err(),
+            "expected this txn to fail when min_ctx_slot > absolute_latest_slot"
+        );
+        assert_eq!(
+            get_fee_with_wrong_mint_slot_fail_result.err().unwrap(),
+            wrong_min_slot_expected_err.err().unwrap()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2937,6 +3077,31 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn test_simulate_transaction_oversized_base64_returns_invalid_params() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        let err = setup
+            .rpc
+            .simulate_transaction(
+                Some(setup.context),
+                "A".repeat(1645),
+                Some(RpcSimulateTransactionConfig {
+                    encoding: Some(UiTransactionEncoding::Base64),
+                    ..RpcSimulateTransactionConfig::default()
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.code, jsonrpc_core::ErrorCode::InvalidParams);
+        assert!(
+            err.message.contains("base64 encoded"),
+            "expected base64 size validation error, got: {}",
+            err.message
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_simulate_transaction_no_signers() {
         let payer = Keypair::new();
         let pk = Pubkey::new_unique();
@@ -3214,6 +3379,33 @@ mod tests {
         assert!(
             res.is_some(),
             "Block time should be calculated for valid slots"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_block_respects_confirmed_commitment_visibility() {
+        let setup = TestSetup::new(SurfpoolFullRpc);
+
+        setup.context.svm_locker.with_svm_writer(|svm_writer| {
+            svm_writer.latest_epoch_info.absolute_slot = 10;
+        });
+
+        let res = setup
+            .rpc
+            .get_block(
+                Some(setup.context),
+                10,
+                Some(RpcEncodingConfigWrapper::Current(Some(RpcBlockConfig {
+                    commitment: Some(CommitmentConfig::confirmed()),
+                    ..RpcBlockConfig::default()
+                }))),
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            res.is_none(),
+            "A confirmed getBlock request should not expose a slot newer than the confirmed slot"
         );
     }
 

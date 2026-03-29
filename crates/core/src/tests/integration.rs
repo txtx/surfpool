@@ -11,7 +11,8 @@ use solana_account::Account;
 use solana_account_decoder::{UiAccountData, UiAccountEncoding, parse_account_data::ParsedAccount};
 use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
 use solana_client::{
-    nonblocking::rpc_client::RpcClient, rpc_config::RpcSimulateTransactionConfig,
+    nonblocking::rpc_client::RpcClient,
+    rpc_config::{RpcSendTransactionConfig, RpcSimulateTransactionConfig},
     rpc_response::RpcLogsResponse,
 };
 use solana_clock::{Clock, Slot};
@@ -21,8 +22,8 @@ use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
 use solana_message::{
-    AddressLookupTableAccount, Message, VersionedMessage, legacy,
-    v0::{self},
+    AddressLookupTableAccount, Message, MessageHeader, VersionedMessage, legacy,
+    v0::{self, MessageAddressTableLookup},
 };
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::response::Response as RpcResponse;
@@ -32,8 +33,9 @@ use solana_system_interface::{
 };
 use solana_transaction::{Transaction, versioned::VersionedTransaction};
 use surfpool_types::{
-    DEFAULT_SLOT_TIME_MS, Idl, RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent,
-    SurfpoolConfig, UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
+    CheatcodeConfig, CheatcodeControlConfig, CheatcodeFilter, DEFAULT_SLOT_TIME_MS, Idl,
+    RpcProfileDepth, RpcProfileResultConfig, SimnetCommand, SimnetEvent, SurfpoolConfig,
+    UiAccountChange, UiAccountProfileState, UiKeyedProfileResult,
     types::{
         BlockProductionMode, RpcConfig, SimnetConfig, SubgraphConfig, TransactionStatusEvent,
         UuidOrSignature,
@@ -45,17 +47,18 @@ use uuid::Uuid;
 pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
 use crate::{
-    PluginManagerCommand,
     error::SurfpoolError,
     rpc::{
         RunloopContext,
-        full::FullClient,
+        full::{FullClient, SurfpoolRpcSendTransactionConfig},
         minimal::MinimalClient,
         surfnet_cheatcodes::{SurfnetCheatcodes, SurfnetCheatcodesRpc},
     },
     runloops::{setup_profiling, start_local_surfnet_runloop},
     storage::tests::TestType,
-    surfnet::{SignatureSubscriptionType, locker::SurfnetSvmLocker, svm::SurfnetSvm},
+    surfnet::{
+        PluginCommand, SignatureSubscriptionType, locker::SurfnetSvmLocker, svm::SurfnetSvm,
+    },
     tests::helpers::get_free_port,
     types::{TimeTravelConfig, TransactionLoadedAddresses},
 };
@@ -98,14 +101,13 @@ async fn test_simnet_ready(test_type: TestType) {
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
             svm_locker,
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -147,7 +149,7 @@ async fn test_simnet_ticks(test_type: TestType) {
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let (test_tx, test_rx) = unbounded();
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
@@ -155,7 +157,6 @@ async fn test_simnet_ticks(test_type: TestType) {
         let future = start_local_surfnet_runloop(
             svm_locker,
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -217,14 +218,13 @@ async fn test_simnet_some_sol_transfers(test_type: TestType) {
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
     let _handle = hiro_system_kit::thread_named("test").spawn(move || {
         let future = start_local_surfnet_runloop(
             svm_locker,
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -376,7 +376,7 @@ async fn test_add_alt_entries_fetching(test_type: TestType) {
     println!("Initializing SVM, binding to port {}", bind_port);
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
 
     let moved_svm_locker = svm_locker.clone();
@@ -384,7 +384,6 @@ async fn test_add_alt_entries_fetching(test_type: TestType) {
         let future = start_local_surfnet_runloop(
             SurfnetSvmLocker(moved_svm_locker),
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -549,7 +548,7 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
 
     let moved_svm_locker = svm_locker.clone();
@@ -557,7 +556,6 @@ async fn test_simulate_add_alt_entries_fetching(test_type: TestType) {
         let future = start_local_surfnet_runloop(
             SurfnetSvmLocker(moved_svm_locker),
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -685,7 +683,7 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = Arc::new(RwLock::new(surfnet_svm));
 
     let moved_svm_locker = svm_locker.clone();
@@ -693,7 +691,6 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
         let future = start_local_surfnet_runloop(
             SurfnetSvmLocker(moved_svm_locker),
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -763,7 +760,7 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_surfnet_estimate_compute_units(test_type: TestType) {
     let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
-    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
+    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc::empty();
 
     let payer = Keypair::new();
     let recipient = Pubkey::new_unique();
@@ -787,15 +784,16 @@ async fn test_surfnet_estimate_compute_units(test_type: TestType) {
     // Manually construct RunloopContext
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Test with None tag
@@ -1052,9 +1050,298 @@ async fn test_surfnet_estimate_compute_units(test_type: TestType) {
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_enable_and_disable_cheatcodes(test_type: TestType) {
+    let valid_cheatcode_method = "surfnet_getActiveIdl".to_string();
+    let enable_cheatcode_method = "surfnet_enableCheatcode".to_string();
+    let disable_cheatcode_method = "surfnet_disableCheatcode".to_string();
+    let invalid_cheatcode_method = "surfnet_invalidCheatcode".to_string();
+    let available_methods = vec![
+        valid_cheatcode_method.clone(),
+        enable_cheatcode_method.clone(),
+        disable_cheatcode_method.clone(),
+    ];
+    let rpc_server = SurfnetCheatcodesRpc {
+        registered_methods: Arc::new(std::sync::RwLock::new(available_methods.clone())),
+    };
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
+    let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
+
+    let runloop_context = RunloopContext {
+        id: None,
+        svm_locker: svm_locker_for_context.clone(),
+        simnet_commands_tx: simnet_cmd_tx,
+        remote_rpc_client: None,
+        rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
+    };
+
+    // Test disable works properly
+    let disable_cheatcode_pass_result = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::List(vec![valid_cheatcode_method.clone()]),
+        None,
+    );
+
+    assert!(
+        disable_cheatcode_pass_result.is_ok(),
+        "Expected surfnet_disableCheatcode to pass"
+    );
+
+    assert!(
+        runloop_context
+            .cheatcode_config
+            .lock()
+            .unwrap()
+            .is_cheatcode_disabled(&valid_cheatcode_method),
+        "Expected cheatcode to be disabled"
+    );
+
+    let disable_enable_cheatcode_lockout_false_fails = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::List(vec![enable_cheatcode_method.clone()]),
+        None,
+    );
+
+    let expected_error: jsonrpc_core::Result<()> = Err(SurfpoolError::disable_cheatcode(
+        "Cannot disable surfnet_enableCheatcode or surfnet_disableCheatcode rpc method when lockout is not enabled".to_string(),
+    )
+    .into());
+
+    assert!(
+        disable_enable_cheatcode_lockout_false_fails.is_err(),
+        "Expected surfnet_disableCheatcode to fail when disabling surfnet_enableCheatcode with lockout == false"
+    );
+    assert_eq!(
+        disable_enable_cheatcode_lockout_false_fails.err().unwrap(),
+        expected_error.err().unwrap(),
+        "Expected error did not match the resulting error"
+    );
+
+    // Test that surfnet_disableCheatcode cannot be disabled without lockout
+    let disable_disable_cheatcode_lockout_false_fails = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::List(vec![disable_cheatcode_method.clone()]),
+        None,
+    );
+
+    let expected_error_disable_self: jsonrpc_core::Result<()> = Err(SurfpoolError::disable_cheatcode(
+        "Cannot disable surfnet_enableCheatcode or surfnet_disableCheatcode rpc method when lockout is not enabled".to_string(),
+    )
+    .into());
+
+    assert!(
+        disable_disable_cheatcode_lockout_false_fails.is_err(),
+        "Expected surfnet_disableCheatcode to fail when disabling surfnet_disableCheatcode with lockout == false"
+    );
+    assert_eq!(
+        disable_disable_cheatcode_lockout_false_fails.err().unwrap(),
+        expected_error_disable_self.err().unwrap(),
+        "Expected error did not match the resulting error"
+    );
+
+    let disable_cheatcode_fails_on_invalid_cheatcode = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::List(vec![invalid_cheatcode_method.clone()]),
+        None,
+    );
+
+    let expected_error_disable_invalid_cheatcode: jsonrpc_core::Result<()> =
+        Err(SurfpoolError::disable_cheatcode("Invalid cheatcode rpc method".to_string()).into());
+
+    assert!(
+        disable_cheatcode_fails_on_invalid_cheatcode.is_err(),
+        "Expected surfnet_disableCheatcode to fail on providing invalid cheatcode method"
+    );
+
+    assert_eq!(
+        expected_error_disable_invalid_cheatcode.err().unwrap(),
+        disable_cheatcode_fails_on_invalid_cheatcode.err().unwrap(),
+        "Resulting error does not match the expected error"
+    );
+
+    let disable_all_cheatcodes_fails_with_invalid_config = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::All("not_all".to_string()),
+        None,
+    );
+    let expected_error_disable_all_with_invalid_config: jsonrpc_core::Result<()> =
+        Err(SurfpoolError::disable_cheatcode(
+            "Invalid option provided for disabling all cheatcodes. Try using 'all' or providing an array of specific cheatcodes".to_string(),
+        )
+        .into());
+
+    assert!(
+        disable_all_cheatcodes_fails_with_invalid_config.is_err(),
+        "Expected surfnet_disableCheatcode to fail when config is wrong"
+    );
+    assert_eq!(
+        disable_all_cheatcodes_fails_with_invalid_config
+            .err()
+            .unwrap(),
+        expected_error_disable_all_with_invalid_config
+            .err()
+            .unwrap(),
+        "Expected error did not match the resulting error"
+    );
+
+    let disabled_all_cheatcode_passes_result = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::All("all".to_string()),
+        None,
+    );
+
+    assert!(
+        disabled_all_cheatcode_passes_result.is_ok(),
+        "Expected surfnet_disableCheatcode to pass with valid config"
+    );
+
+    assert_eq!(
+        runloop_context.cheatcode_config.lock().unwrap().filter,
+        CheatcodeConfig::filter_all_list(false, available_methods.clone()),
+        "The disabled cheatcodes list doesn't match the expected one"
+    );
+
+    let disable_fails_if_cheatcode_already_disabled_result = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::List(vec![valid_cheatcode_method.clone()]),
+        None,
+    );
+
+    let expected_error_if_cheatcode_already_disabled: jsonrpc_core::Result<()> =
+        Err(SurfpoolError::disable_cheatcode("Cheatcode already disabled".to_string()).into());
+
+    assert!(
+        disable_fails_if_cheatcode_already_disabled_result.is_err(),
+        "Expected surfnet_disableCheatcode to fail if cheatcode already disabled"
+    );
+
+    assert_eq!(
+        disable_fails_if_cheatcode_already_disabled_result
+            .err()
+            .unwrap(),
+        expected_error_if_cheatcode_already_disabled.err().unwrap(),
+        "The expected error does not match the resulting error"
+    );
+
+    // test enable works properly
+    let enable_cheatcode_works_properly_result = rpc_server.enable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::List(vec![valid_cheatcode_method.clone()]),
+    );
+
+    assert!(
+        enable_cheatcode_works_properly_result.is_ok(),
+        "expected surfnet_enableCheatcode to pass"
+    );
+    assert!(
+        !runloop_context
+            .cheatcode_config
+            .lock()
+            .unwrap()
+            .is_cheatcode_disabled(&valid_cheatcode_method),
+        "Expected the cheatcode to be enabled after surnet_enableCheatcode rpc method"
+    );
+
+    let enable_cheatcode_fails_on_invalid_cheatcode = rpc_server.enable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::List(vec![invalid_cheatcode_method]),
+    );
+
+    let expected_error_enable_invalid_cheatcode: jsonrpc_core::Result<()> =
+        Err(SurfpoolError::enable_cheatcode("Invalid cheatcode rpc method".to_string()).into());
+
+    assert!(
+        enable_cheatcode_fails_on_invalid_cheatcode.is_err(),
+        "Expected surfnet_disableCheatcode to fail on providing invalid cheatcode method"
+    );
+
+    assert_eq!(
+        enable_cheatcode_fails_on_invalid_cheatcode.err().unwrap(),
+        expected_error_enable_invalid_cheatcode.err().unwrap(),
+        "Resulting error does not match the expected error"
+    );
+
+    let enable_all_cheatcodes_fails_with_invalid_config = rpc_server.enable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::All("not_all".to_string()),
+    );
+    let expected_error_enable_all_with_invalid_config: jsonrpc_core::Result<()> =
+        Err(SurfpoolError::enable_cheatcode(
+            "Invalid option provided for enabling all cheatcodes. Try using 'all' or providing an array of specific cheatcodes".to_string(),
+        )
+        .into());
+
+    assert!(
+        enable_all_cheatcodes_fails_with_invalid_config.is_err(),
+        "Expected surfnet_disableCheatcode to fail when config is wrong"
+    );
+    assert_eq!(
+        enable_all_cheatcodes_fails_with_invalid_config
+            .err()
+            .unwrap(),
+        expected_error_enable_all_with_invalid_config.err().unwrap(),
+        "Expected error did not match the resulting error"
+    );
+
+    let enable_all_cheatcodes_pass_result = rpc_server.enable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::All("all".to_string()),
+    );
+
+    assert!(
+        enable_all_cheatcodes_pass_result.is_ok(),
+        "Expected surnet_enableCheatcode with correct config to pass"
+    );
+
+    assert_eq!(
+        runloop_context.cheatcode_config.lock().unwrap().filter,
+        CheatcodeFilter::List(vec![]),
+        "Expected all the cheatcodes to be enabled"
+    );
+
+    let disable_all_with_lockout_passes = rpc_server.disable_cheatcode(
+        Some(runloop_context.clone()),
+        CheatcodeFilter::All("all".to_string()),
+        Some(CheatcodeControlConfig {
+            lockout: Some(true),
+        }),
+    );
+
+    assert!(
+        disable_all_with_lockout_passes.is_ok(),
+        "Expected surfnet_disableCheatcode with lockout == true to pass"
+    );
+
+    assert_eq!(
+        runloop_context.cheatcode_config.lock().unwrap().filter,
+        CheatcodeConfig::filter_all_list(true, vec![]),
+        "Expected all the features to be disabled"
+    );
+
+    // assert that surfnet_enableCheatcode and surfnet_disableCheatcode both are disabled so that on_request Middleware sucessfully filters them
+    for ref cheatcode in [enable_cheatcode_method, disable_cheatcode_method] {
+        assert!(
+            runloop_context
+                .cheatcode_config
+                .lock()
+                .unwrap()
+                .is_cheatcode_disabled(cheatcode),
+            "Expected {} to be disabled",
+            cheatcode
+        );
+    }
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_transaction_profile(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     // Set up test accounts
@@ -1081,15 +1368,16 @@ async fn test_get_transaction_profile(test_type: TestType) {
     // Manually construct RunloopContext
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Test 1: Profile a transaction with a tag and retrieve by UUID
@@ -1275,20 +1563,21 @@ async fn test_get_transaction_profile(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_register_and_get_idl_without_slot(test_type: TestType) {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Test 1: Register IDL without slot
@@ -1330,20 +1619,21 @@ fn test_register_and_get_idl_without_slot(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_register_and_get_idl_with_slot(test_type: TestType) {
     let idl: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Test 1: Register IDL with slot
@@ -1398,7 +1688,7 @@ async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType
     let idl_v1: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v1.json")).unwrap();
     let idl_v2: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v2.json")).unwrap();
     let idl_v3: Idl = serde_json::from_slice(include_bytes!("./assets/idl_v3.json")).unwrap();
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance);
@@ -1416,15 +1706,16 @@ async fn test_register_and_get_same_idl_with_different_slots(test_type: TestType
 
     // Setup runloop context
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Step 1: Register IDL v1 at slot_1
@@ -3100,21 +3391,22 @@ async fn test_profile_transaction_versioned_message(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_local_signatures_without_limit(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
 
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
 
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     let payer = Keypair::new();
@@ -3205,20 +3497,21 @@ async fn test_get_local_signatures_without_limit(test_type: TestType) {
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_get_local_signatures_with_limit(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker_for_context = SurfnetSvmLocker::new(svm_instance.clone());
 
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker_for_context.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     let payer = Keypair::new();
@@ -3379,7 +3672,7 @@ fn boot_simnet(
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
+
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
 
     let svm_locker_cc: SurfnetSvmLocker = svm_locker.clone();
@@ -3388,7 +3681,6 @@ fn boot_simnet(
         let future = start_local_surfnet_runloop(
             svm_locker_cc,
             config,
-            subgraph_commands_tx,
             simnet_commands_tx_cc,
             simnet_commands_rx,
             geyser_events_rx,
@@ -3414,18 +3706,19 @@ fn boot_simnet(
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_resume_paused_clock(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, _) =
         boot_simnet(BlockProductionMode::Clock, Some(100), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Get initial epoch info
@@ -3491,22 +3784,24 @@ fn test_time_travel_resume_paused_clock(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_absolute_timestamp(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let slot_time = 100;
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) = boot_simnet(
         BlockProductionMode::Clock,
         Some(slot_time.clone()),
         test_type,
     );
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx.clone(),
-        plugin_manager_commands_tx: plugin_cmd_tx,
+
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     let clock = Clock {
@@ -3577,18 +3872,20 @@ fn test_time_travel_absolute_timestamp(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_absolute_slot(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx.clone(),
-        plugin_manager_commands_tx: plugin_cmd_tx,
+
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     let clock = Clock {
@@ -3653,18 +3950,20 @@ fn test_time_travel_absolute_slot(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_time_travel_absolute_epoch(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx.clone(),
-        plugin_manager_commands_tx: plugin_cmd_tx,
+
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     let clock = Clock {
@@ -4366,19 +4665,39 @@ fn test_reset_network(test_type: TestType) {
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+fn test_reset_network_keeps_latest_blockhash_valid(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    hiro_system_kit::nestable_block_on(svm_locker.reset_network(&None)).unwrap();
+
+    let latest_blockhash = svm_locker.with_svm_reader(|svm_reader| svm_reader.latest_blockhash());
+    let is_recent = svm_locker
+        .with_svm_reader(|svm_reader| svm_reader.check_blockhash_is_recent(&latest_blockhash));
+    assert!(
+        is_recent,
+        "latest_blockhash returned after reset should be present in RecentBlockhashes sysvar",
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_reset_network_time_travel_timestamp(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Calculate a target timestamp in the future
@@ -4419,18 +4738,19 @@ fn test_reset_network_time_travel_timestamp(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_reset_network_time_travel_slot(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Do an initial reset to ensure we start from slot 0
@@ -4475,18 +4795,19 @@ fn test_reset_network_time_travel_slot(test_type: TestType) {
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_reset_network_time_travel_epoch(test_type: TestType) {
-    let rpc_server = SurfnetCheatcodesRpc;
+    let rpc_server = SurfnetCheatcodesRpc::empty();
     let (svm_locker, simnet_cmd_tx, simnet_events_rx) =
         boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Do an initial reset to ensure we start from epoch 0
@@ -4556,7 +4877,6 @@ fn start_surfnet(
 
     let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
     let (simnet_commands_tx, simnet_commands_rx) = unbounded();
-    let (subgraph_commands_tx, _subgraph_commands_rx) = unbounded();
     let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
     let svm_locker_cc: SurfnetSvmLocker = svm_locker.clone();
 
@@ -4564,7 +4884,6 @@ fn start_surfnet(
         let future = start_local_surfnet_runloop(
             svm_locker_cc,
             config,
-            subgraph_commands_tx,
             simnet_commands_tx,
             simnet_commands_rx,
             geyser_events_rx,
@@ -4729,6 +5048,505 @@ async fn test_closed_accounts(test_type: TestType) {
         );
         println!("Account successfully closed and not re-fetched from datasource surfnet");
     }
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_offline_account_including_owned_accounts(test_type: TestType) {
+    let owner = Pubkey::new_unique();
+    let owned = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    let (datasource_surfnet_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+
+    datasource_svm_locker
+        .with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &owner,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL,
+                        data: vec![1, 2, 3],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            svm_writer
+                .set_account(
+                    &owned,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL / 2,
+                        data: vec![4, 5, 6],
+                        owner,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
+        .expect("Failed to seed datasource accounts");
+
+    let (surfnet_url, surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_surfnet_url), another_test_type)
+            .expect("Failed to start surfnet");
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_offlineAccount",
+            },
+            serde_json::json!([owner.to_string(), { "includeOwnedAccounts": true }]),
+        )
+        .await
+        .expect("Failed to set account offline");
+
+    assert!(
+        surfnet_svm_locker.is_account_offline(&owner),
+        "Owner should be recorded as offline"
+    );
+    assert!(
+        surfnet_svm_locker
+            .get_offline_account_owners()
+            .contains(&owner),
+        "Owner should be recorded as a offline account owner"
+    );
+
+    let owner_result = rpc_client.get_account(&owner).await;
+    assert!(
+        owner_result.is_err(),
+        "Offline owner account should not be fetched from remote"
+    );
+    assert!(
+        surfnet_svm_locker.get_account_local(&owner).inner.is_none(),
+        "Offline owner account should remain absent locally"
+    );
+
+    let owned_result = rpc_client.get_account(&owned).await;
+    assert!(
+        owned_result.is_err(),
+        "Owned account should not be fetched from remote once marked offline"
+    );
+    assert!(
+        surfnet_svm_locker.get_account_local(&owned).inner.is_none(),
+        "Offline owned account should remain absent locally"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_offline_account_without_owned_accounts(test_type: TestType) {
+    let owner = Pubkey::new_unique();
+    let owned = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    let (datasource_surfnet_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+
+    datasource_svm_locker
+        .with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &owner,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL,
+                        data: vec![1, 2, 3],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            svm_writer
+                .set_account(
+                    &owned,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL / 2,
+                        data: vec![4, 5, 6],
+                        owner,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
+        .expect("Failed to seed datasource accounts");
+
+    let (surfnet_url, surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_surfnet_url), another_test_type)
+            .expect("Failed to start surfnet");
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Mark owner offline WITHOUT includeOwnedAccounts
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_offlineAccount",
+            },
+            serde_json::json!([owner.to_string()]),
+        )
+        .await
+        .expect("Failed to set account offline");
+
+    assert!(
+        surfnet_svm_locker.is_account_offline(&owner),
+        "Owner should be recorded as offline"
+    );
+    assert!(
+        !surfnet_svm_locker
+            .get_offline_account_owners()
+            .contains(&owner),
+        "Owner should NOT be in offline account owners (includeOwnedAccounts=false)"
+    );
+
+    // Offline account itself cannot be fetched from remote
+    let owner_result = rpc_client.get_account(&owner).await;
+    assert!(
+        owner_result.is_err(),
+        "Offline owner account should not be fetched from remote"
+    );
+
+    // Account owned by the offline owner CAN still be fetched
+    let owned_result = rpc_client.get_account(&owned).await;
+    assert!(
+        owned_result.is_ok(),
+        "Owned account should still be fetchable when owner blocking is not active"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reset_account_after_offline_restores(test_type: TestType) {
+    let account = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    let (datasource_surfnet_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+
+    datasource_svm_locker
+        .with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &account,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL,
+                        data: vec![1, 2, 3],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
+        .expect("Failed to seed datasource accounts");
+
+    let (surfnet_url, surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_surfnet_url), another_test_type)
+            .expect("Failed to start surfnet");
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Mark the account offline
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_offlineAccount",
+            },
+            serde_json::json!([account.to_string()]),
+        )
+        .await
+        .expect("Failed to set account offline");
+
+    assert!(
+        surfnet_svm_locker.is_account_offline(&account),
+        "Account should be offline"
+    );
+
+    // Verify it's blocked
+    let result = rpc_client.get_account(&account).await;
+    assert!(
+        result.is_err(),
+        "Offline account should not be fetched from remote"
+    );
+
+    // Reset the account — this should bring it back online
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_resetAccount",
+            },
+            serde_json::json!([account.to_string()]),
+        )
+        .await
+        .expect("Failed to reset account");
+
+    assert!(
+        !surfnet_svm_locker.is_account_offline(&account),
+        "Account should be online after reset"
+    );
+
+    // Verify it can be fetched from remote again
+    let result = rpc_client.get_account(&account).await;
+    assert!(
+        result.is_ok(),
+        "Account should be fetchable from remote after reset"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reset_network_clears_offline_accounts(test_type: TestType) {
+    let account = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    let (datasource_surfnet_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+
+    datasource_svm_locker
+        .with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &account,
+                    Account {
+                        lamports: LAMPORTS_PER_SOL,
+                        data: vec![1, 2, 3],
+                        owner: system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
+        .expect("Failed to seed datasource accounts");
+
+    let (surfnet_url, surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_surfnet_url), another_test_type)
+            .expect("Failed to start surfnet");
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Mark the account offline
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_offlineAccount",
+            },
+            serde_json::json!([account.to_string()]),
+        )
+        .await
+        .expect("Failed to set account offline");
+
+    assert!(
+        surfnet_svm_locker.is_account_offline(&account),
+        "Account should be offline"
+    );
+
+    // Reset the network
+    let _: serde_json::Value = rpc_client
+        .send(
+            solana_client::rpc_request::RpcRequest::Custom {
+                method: "surfnet_resetNetwork",
+            },
+            serde_json::json!([]),
+        )
+        .await
+        .expect("Failed to reset network");
+
+    assert!(
+        !surfnet_svm_locker.is_account_offline(&account),
+        "Account should be online after network reset"
+    );
+
+    // Verify the account can be fetched from remote again
+    let result = rpc_client.get_account(&account).await;
+    assert!(
+        result.is_ok(),
+        "Account should be fetchable from remote after network reset"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_get_multiple_accounts_only_program_accounts(test_type: TestType) {
+    let program_pubkey = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    // Start datasource surfnet A (offline, no remote)
+    let (datasource_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+    println!("Datasource surfnet started at {}", datasource_url);
+
+    // Insert a proper upgradeable program into A.
+    // Using write_program ensures the program and program-data accounts are
+    // stored with the correct BPF loader owner and serialized state, which is
+    // required by LiteSVM's account validation.
+    datasource_svm_locker
+        .write_program(program_pubkey, None, 0, &[1, 2, 3], &None)
+        .await
+        .expect("Failed to write program account");
+
+    // Start surfnet B pointing to A as remote
+    let (surfnet_url, _surfnet_svm_locker) =
+        start_surfnet(vec![], Some(datasource_url), another_test_type)
+            .expect("Failed to start surfnet");
+    println!("Surfnet B started at {}", surfnet_url);
+
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Fetch the executable account via get_multiple_accounts.
+    let accounts = rpc_client
+        .get_multiple_accounts(&[program_pubkey])
+        .await
+        .expect("Failed to get multiple accounts");
+
+    let account = accounts[0]
+        .as_ref()
+        .expect("Program account should be found (not None)");
+    assert!(account.executable, "Account should be executable");
+    println!("Program account successfully fetched via get_multiple_accounts");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_get_multiple_accounts_ordering(test_type: TestType) {
+    let program_pubkey = Pubkey::new_unique();
+    let plain_pubkey = Pubkey::new_unique();
+    let another_test_type = match &test_type {
+        TestType::OnDiskSqlite(_) => TestType::sqlite(),
+        TestType::InMemorySqlite => TestType::in_memory(),
+        TestType::NoDb => TestType::no_db(),
+        #[cfg(feature = "postgres")]
+        TestType::Postgres { url, .. } => TestType::Postgres {
+            url: url.clone(),
+            surfnet_id: crate::storage::tests::random_surfnet_id(),
+        },
+    };
+
+    // Start datasource surfnet A (offline, no remote)
+    let (datasource_url, datasource_svm_locker) =
+        start_surfnet(vec![], None, test_type).expect("Failed to start datasource surfnet");
+
+    // Insert a program account on A
+    datasource_svm_locker
+        .write_program(program_pubkey, None, 0, &[1, 2, 3], &None)
+        .await
+        .expect("Failed to write program account");
+
+    // Insert a plain SOL account on A
+    datasource_svm_locker
+        .airdrop(&plain_pubkey, LAMPORTS_PER_SOL)
+        .expect("Failed to airdrop to plain account")
+        .unwrap();
+
+    // Start surfnet B pointing to A as remote
+    let (surfnet_url, _) = start_surfnet(vec![], Some(datasource_url), another_test_type)
+        .expect("Failed to start surfnet B");
+
+    let rpc_client = RpcClient::new(surfnet_url);
+
+    // Fetch with program FIRST, plain SECOND — this is the ordering that the old code broke
+    let accounts = rpc_client
+        .get_multiple_accounts(&[program_pubkey, plain_pubkey])
+        .await
+        .expect("Failed to get multiple accounts");
+
+    assert_eq!(accounts.len(), 2);
+
+    // Index 0 must be the program account (executable)
+    let prog_account = accounts[0]
+        .as_ref()
+        .expect("Program account should be found at index 0");
+    assert!(
+        prog_account.executable,
+        "accounts[0] should be executable (program)"
+    );
+
+    // Index 1 must be the plain account (not executable, has lamports)
+    let plain_account = accounts[1]
+        .as_ref()
+        .expect("Plain account should be found at index 1");
+    assert!(
+        !plain_account.executable,
+        "accounts[1] should not be executable (plain)"
+    );
+    assert_eq!(
+        plain_account.lamports, LAMPORTS_PER_SOL,
+        "accounts[1] should have airdrop lamports"
+    );
 }
 
 // websocket rpc methods tests
@@ -6930,7 +7748,7 @@ fn test_nonce_accounts() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
     let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
-    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc;
+    let rpc_server = crate::rpc::surfnet_cheatcodes::SurfnetCheatcodesRpc::empty();
 
     // Setup: Create accounts and fund the payer
     let payer = Keypair::new();
@@ -6963,15 +7781,16 @@ async fn test_profile_transaction_does_not_mutate_state(test_type: TestType) {
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
     setup_profiling(&svm_locker);
     let (simnet_cmd_tx, _simnet_cmd_rx) = crossbeam_unbounded::<SimnetCommand>();
-    let (plugin_cmd_tx, _plugin_cmd_rx) = crossbeam_unbounded::<PluginManagerCommand>();
+    let (plugin_commands_tx, _plugin_commands_rx) = crossbeam_channel::unbounded::<PluginCommand>();
 
     let runloop_context = RunloopContext {
         id: None,
         svm_locker: svm_locker.clone(),
         simnet_commands_tx: simnet_cmd_tx,
-        plugin_manager_commands_tx: plugin_cmd_tx,
         remote_rpc_client: None,
         rpc_config: RpcConfig::default(),
+        cheatcode_config: CheatcodeConfig::new(),
+        plugin_commands_tx,
     };
 
     // Profile the transaction multiple times to ensure no state leakage
@@ -7247,5 +8066,765 @@ async fn test_instruction_profiling_does_not_mutate_state(test_type: TestType) {
         final_transactions_processed,
         initial_transactions_processed + 1,
         "Transaction count should increment after processing (even for failed tx)"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_basic(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+    let account_pubkey = Pubkey::new_unique();
+
+    // Subscribe to program updates
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        None,
+    );
+
+    // Set an account owned by the program
+    let account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey, account).unwrap();
+    });
+
+    // Should receive a notification
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(update.is_ok(), "Should receive program account update");
+
+    let keyed_account = update.unwrap();
+    assert_eq!(
+        keyed_account.pubkey,
+        account_pubkey.to_string(),
+        "Notification should contain the correct account pubkey"
+    );
+    assert_eq!(
+        keyed_account.account.lamports, 1_000_000,
+        "Notification should contain the correct lamports"
+    );
+    println!("✓ programSubscribe basic flow works correctly");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_data_size_filter(test_type: TestType) {
+    use solana_client::rpc_filter::RpcFilterType;
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+
+    // Subscribe with a dataSize filter for accounts with exactly 8 bytes of data
+    let filters = vec![RpcFilterType::DataSize(8)];
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        Some(filters),
+    );
+
+    // Set an account with 4 bytes (should NOT trigger notification)
+    let small_account_pubkey = Pubkey::new_unique();
+    let small_account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&small_account_pubkey, small_account)
+            .unwrap();
+    });
+
+    // Should NOT receive a notification for the 4-byte account
+    let no_update = program_rx.recv_timeout(Duration::from_millis(200));
+    assert!(
+        no_update.is_err(),
+        "Should NOT receive notification for account that doesn't match dataSize filter"
+    );
+
+    // Set an account with 8 bytes (SHOULD trigger notification)
+    let matching_account_pubkey = Pubkey::new_unique();
+    let matching_account = Account {
+        lamports: 2_000_000,
+        data: vec![1, 2, 3, 4, 5, 6, 7, 8],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&matching_account_pubkey, matching_account)
+            .unwrap();
+    });
+
+    // Should receive a notification for the 8-byte account
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        update.is_ok(),
+        "Should receive notification for account matching dataSize filter"
+    );
+
+    let keyed_account = update.unwrap();
+    assert_eq!(
+        keyed_account.pubkey,
+        matching_account_pubkey.to_string(),
+        "Notification should contain the correct matching account pubkey"
+    );
+    println!("✓ programSubscribe with dataSize filter works correctly");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_memcmp_filter(test_type: TestType) {
+    use solana_client::rpc_filter::{Memcmp, RpcFilterType};
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+
+    // Subscribe with a memcmp filter: offset 0, bytes [0xAA, 0xBB]
+    let filters = vec![RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
+        0,
+        vec![0xAA, 0xBB],
+    ))];
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        Some(filters),
+    );
+
+    // Set an account that doesn't match the memcmp filter
+    let non_matching_pubkey = Pubkey::new_unique();
+    let non_matching_account = Account {
+        lamports: 1_000_000,
+        data: vec![0x00, 0x00, 0xCC, 0xDD],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&non_matching_pubkey, non_matching_account)
+            .unwrap();
+    });
+
+    // Should NOT receive a notification
+    let no_update = program_rx.recv_timeout(Duration::from_millis(200));
+    assert!(
+        no_update.is_err(),
+        "Should NOT receive notification for account that doesn't match memcmp filter"
+    );
+
+    // Set an account that matches the memcmp filter
+    let matching_pubkey = Pubkey::new_unique();
+    let matching_account = Account {
+        lamports: 2_000_000,
+        data: vec![0xAA, 0xBB, 0xCC, 0xDD],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&matching_pubkey, matching_account).unwrap();
+    });
+
+    // Should receive a notification
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        update.is_ok(),
+        "Should receive notification for account matching memcmp filter"
+    );
+
+    let keyed_account = update.unwrap();
+    assert_eq!(
+        keyed_account.pubkey,
+        matching_pubkey.to_string(),
+        "Notification should contain the correct matching account pubkey"
+    );
+    println!("✓ programSubscribe with memcmp filter works correctly");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_unsubscribe(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let program_id = Pubkey::new_unique();
+
+    // Subscribe to program updates
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &program_id,
+        Some(UiAccountEncoding::Base64),
+        None,
+    );
+
+    // Verify subscription works by setting an account
+    let account_pubkey = Pubkey::new_unique();
+    let account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey, account).unwrap();
+    });
+
+    let update = program_rx.recv_timeout(Duration::from_secs(5));
+    assert!(update.is_ok(), "Should receive first notification");
+
+    // Drop the receiver to simulate unsubscribe
+    drop(program_rx);
+
+    // Set another account - this should not panic or error
+    let account_pubkey2 = Pubkey::new_unique();
+    let account2 = Account {
+        lamports: 2_000_000,
+        data: vec![5, 6, 7, 8],
+        owner: program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey2, account2).unwrap();
+    });
+
+    println!("✓ programUnsubscribe works correctly (no panic after receiver dropped)");
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ws_program_subscribe_wrong_owner(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let subscribed_program_id = Pubkey::new_unique();
+    let other_program_id = Pubkey::new_unique();
+
+    // Subscribe to updates for subscribed_program_id
+    let program_rx = svm_locker.subscribe_for_program_updates(
+        &subscribed_program_id,
+        Some(UiAccountEncoding::Base64),
+        None,
+    );
+
+    // Set an account owned by a DIFFERENT program
+    let account_pubkey = Pubkey::new_unique();
+    let account = Account {
+        lamports: 1_000_000,
+        data: vec![1, 2, 3, 4],
+        owner: other_program_id,
+        executable: false,
+        rent_epoch: 0,
+    };
+    svm_locker.with_svm_writer(|svm| {
+        svm.set_account(&account_pubkey, account).unwrap();
+    });
+
+    // Should NOT receive a notification since the account is owned by a different program
+    let no_update = program_rx.recv_timeout(Duration::from_millis(200));
+    assert!(
+        no_update.is_err(),
+        "Should NOT receive notification for account owned by a different program"
+    );
+    println!("✓ programSubscribe correctly ignores accounts owned by other programs");
+}
+
+/// Regression test for issue #530: Token-2022's TokenMetadataInstruction::Initialize
+/// previously failed with "Failed to reallocate account data".
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_token2022_metadata_realloc(test_type: TestType) {
+    use solana_system_interface::instruction as system_instruction;
+    use spl_token_2022_interface::{
+        extension::{ExtensionType, metadata_pointer},
+        instruction::initialize_mint2,
+        pod::PodMint,
+    };
+
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let mint = Keypair::new();
+    let decimals = 6u8;
+
+    svm_locker
+        .airdrop(&payer.pubkey(), 10 * LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    // Calculate space for mint with MetadataPointer + MintCloseAuthority extensions only.
+    // NOT pre-sized for metadata content — the CPI realloc will need to grow it.
+    let mint_space =
+        ExtensionType::try_calculate_account_len::<PodMint>(&[ExtensionType::MetadataPointer])
+            .unwrap();
+
+    // Exact minimum rent
+    let mint_rent =
+        svm_locker.with_svm_reader(|svm| svm.inner.minimum_balance_for_rent_exemption(mint_space));
+
+    // --- Transaction 1: Setup (create mint with MetadataPointer) ---
+
+    let create_account_ix = system_instruction::create_account(
+        &payer.pubkey(),
+        &mint.pubkey(),
+        mint_rent,
+        mint_space as u64,
+        &spl_token_2022_interface::id(),
+    );
+
+    // Initialize metadata pointer to the mint itself (must come before mint init)
+    let init_metadata_pointer_ix = metadata_pointer::instruction::initialize(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        Some(payer.pubkey()),
+        Some(mint.pubkey()),
+    )
+    .unwrap();
+
+    let init_mint_ix = initialize_mint2(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &payer.pubkey(),
+        None,
+        decimals,
+    )
+    .unwrap();
+
+    let setup_msg = Message::new_with_blockhash(
+        &[create_account_ix, init_metadata_pointer_ix, init_mint_ix],
+        Some(&payer.pubkey()),
+        &recent_blockhash,
+    );
+
+    let setup_tx =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(setup_msg), &[&payer, &mint])
+            .unwrap();
+    let setup_result =
+        svm_locker.with_svm_writer(|svm| svm.send_transaction(setup_tx, false, false));
+
+    assert!(
+        setup_result.is_ok(),
+        "Setup transaction (create mint with MetadataPointer) \
+         should succeed: {:?}",
+        setup_result,
+    );
+    println!("✓ Setup transaction succeeded");
+
+    // --- Transaction 2: Increase rent and initialize metadata reproduces bug #530) ---
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    // Increase mint account lamports to ensure it can cover the cost of realloc during CPI.
+    let increase_mint_rent_ix =
+        system_instruction::transfer(&payer.pubkey(), &mint.pubkey(), LAMPORTS_PER_SOL);
+
+    // Build the metadata initialize instruction data (discriminator + borsh-serialized fields).
+    // We extract the data bytes from a properly-encoded instruction to pass through our CPI fixture.
+    let metadata_ix_data = spl_token_metadata_interface::instruction::initialize(
+        &spl_token_2022_interface::id(),
+        &mint.pubkey(),
+        &payer.pubkey(),
+        &mint.pubkey(),
+        &payer.pubkey(),
+        "Test Token".to_string(),
+        "TST".to_string(),
+        "https://example.com/metadata.json".to_string(),
+    );
+
+    let msg = Message::new_with_blockhash(
+        &[increase_mint_rent_ix, metadata_ix_data],
+        Some(&payer.pubkey()),
+        &recent_blockhash,
+    );
+
+    let tx = VersionedTransaction::try_new(VersionedMessage::Legacy(msg), &[&payer]).unwrap();
+    let result = svm_locker.with_svm_writer(|svm| svm.send_transaction(tx, false, false));
+
+    // Regression test for #530: CPI realloc previously failed when Token-2022
+    // tried to realloc the mint account to store metadata
+    assert!(
+        result.is_ok(),
+        "CPI metadata initialization should succeed (regression test for #530): {:?}",
+        result,
+    );
+    println!("✓ Regression test #530: Token-2022 metadata CPI realloc works correctly");
+}
+
+async fn test_duplicate_transaction_rejected(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let payer = Keypair::new();
+    let recipient = Pubkey::new_unique();
+    let lamports_to_send = 1_000_000;
+
+    // Airdrop SOL to payer
+    svm_locker
+        .with_svm_writer(|svm| svm.airdrop(&payer.pubkey(), lamports_to_send * 10))
+        .unwrap()
+        .unwrap();
+
+    // Build a transfer transaction
+    let instruction = transfer(&payer.pubkey(), &recipient, lamports_to_send);
+    let latest_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+    let message =
+        Message::new_with_blockhash(&[instruction], Some(&payer.pubkey()), &latest_blockhash);
+    let transaction =
+        VersionedTransaction::try_new(VersionedMessage::Legacy(message), &[&payer]).unwrap();
+
+    // First submission should succeed
+    let (status_tx, status_rx) = crossbeam_unbounded();
+    svm_locker
+        .process_transaction(&None, transaction.clone(), status_tx, false, true)
+        .await
+        .unwrap();
+
+    match status_rx.recv() {
+        Ok(TransactionStatusEvent::Success(_)) => {
+            println!("First transaction processed successfully");
+        }
+        other => {
+            panic!("Expected first transaction to succeed, got: {:?}", other);
+        }
+    }
+
+    // Second submission of the same transaction should be rejected
+    let (status_tx2, status_rx2) = crossbeam_unbounded();
+    let result = svm_locker
+        .process_transaction(&None, transaction.clone(), status_tx2, false, true)
+        .await;
+
+    assert!(result.is_err(), "Duplicate transaction should be rejected");
+
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("already been processed"),
+        "Error should mention 'already been processed', got: {err_msg}"
+    );
+
+    // Status channel should receive a VerificationFailure
+    match status_rx2.recv() {
+        Ok(TransactionStatusEvent::VerificationFailure(msg)) => {
+            assert!(
+                msg.contains("already been processed"),
+                "VerificationFailure should mention 'already been processed', got: {msg}"
+            );
+            println!("Duplicate correctly rejected with VerificationFailure");
+        }
+        other => {
+            panic!(
+                "Expected VerificationFailure on status channel, got: {:?}",
+                other
+            );
+        }
+    }
+
+    // Verify the original transaction data is still stored correctly
+    let sig = transaction.signatures[0].to_string();
+    let stored = svm_locker.with_svm_reader(|svm| svm.transactions.get(&sig));
+    assert!(
+        matches!(
+            stored,
+            Ok(Some(crate::types::SurfnetTransactionStatus::Processed(_)))
+        ),
+        "Original transaction should still be stored as Processed"
+    );
+
+    println!("Duplicate transaction rejection test passed!");
+}
+
+// ============================================================================
+// AccountLoadedTwice: V0 transactions with duplicate accounts in static keys + ALT
+// ============================================================================
+// When a V0 transaction has an account in both its static keys and an Address
+// Lookup Table, Agave rejects pre-execution with AccountLoadedTwice (0 CU).
+// Surfpool must match this behavior.
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_account_loaded_twice_rejected(test_type: TestType) {
+    let (svm_locker, _simnet_cmd_tx, _simnet_events_rx) =
+        boot_simnet(BlockProductionMode::Clock, Some(400), test_type);
+
+    let payer = Keypair::new();
+    svm_locker
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
+
+    let recent_blockhash = svm_locker.with_svm_reader(|svm| svm.latest_blockhash());
+
+    // Create an ALT that contains system_program (11111...111)
+    let alt_key = Pubkey::new_unique();
+    let system_program_id = system_program::id();
+
+    let alt_account_data = AddressLookupTable {
+        meta: LookupTableMeta {
+            authority: Some(payer.pubkey()),
+            ..Default::default()
+        },
+        addresses: vec![system_program_id].into(),
+    };
+
+    svm_locker.with_svm_writer(|svm| {
+        let alt_data = alt_account_data.serialize_for_tests().unwrap();
+        let alt_account = Account {
+            lamports: 1_000_000,
+            data: alt_data,
+            owner: solana_address_lookup_table_interface::program::id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        svm.set_account(&alt_key, alt_account).unwrap();
+    });
+
+    // Build a V0 message that has system_program in BOTH static keys AND the ALT.
+    // try_compile would deduplicate, so we build the message manually.
+    let recipient = Pubkey::new_unique();
+    let v0_message = v0::Message {
+        header: MessageHeader {
+            num_required_signatures: 1,
+            num_readonly_signed_accounts: 0,
+            // system_program is readonly unsigned
+            num_readonly_unsigned_accounts: 1,
+        },
+        // Static keys: [payer (signer+writable), recipient (writable), system_program (readonly)]
+        account_keys: vec![payer.pubkey(), recipient, system_program_id],
+        recent_blockhash,
+        // A simple transfer instruction: program_id_index=2 (system_program),
+        // accounts=[0 (payer), 1 (recipient)]
+        instructions: vec![solana_message::compiled_instruction::CompiledInstruction {
+            program_id_index: 2,
+            accounts: vec![0, 1],
+            data: {
+                // system_instruction::transfer encodes as: [2,0,0,0] + 8-byte LE amount
+                let mut data = vec![2, 0, 0, 0];
+                data.extend_from_slice(&100u64.to_le_bytes());
+                data
+            },
+        }],
+        // ALT lookup that also loads system_program (index 0 in the ALT) as readonly
+        address_table_lookups: vec![MessageAddressTableLookup {
+            account_key: alt_key,
+            writable_indexes: vec![],
+            readonly_indexes: vec![0], // system_program is at index 0 in the ALT
+        }],
+    };
+
+    let tx = VersionedTransaction::try_new(VersionedMessage::V0(v0_message), &[&payer])
+        .expect("Failed to create transaction");
+
+    let (status_tx, _status_rx) = crossbeam_channel::unbounded();
+    let result = svm_locker
+        .process_transaction(&None, tx, status_tx, false, true)
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction with duplicate account should be rejected, got: {:?}",
+        result
+    );
+    let err_string = result.unwrap_err().to_string();
+    assert!(
+        err_string.contains("Account loaded twice"),
+        "Expected AccountLoadedTwice error, got: {}",
+        err_string
+    );
+
+    println!("AccountLoadedTwice rejection test passed!");
+}
+
+#[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test]
+async fn test_send_transaction_skip_sig_verify_processes_and_updates_state(test_type: TestType) {
+    let payer = Keypair::new();
+    let recipient = Keypair::new().pubkey();
+    let transfer_amount = LAMPORTS_PER_SOL / 2;
+    let airdrop_amount = LAMPORTS_PER_SOL * 2;
+    let bind_host = "127.0.0.1";
+    let bind_port = get_free_port().unwrap();
+    let ws_port = get_free_port().unwrap();
+
+    let config = SurfpoolConfig {
+        simnets: vec![SimnetConfig {
+            slot_time: 1,
+            airdrop_addresses: vec![payer.pubkey()],
+            airdrop_token_amount: airdrop_amount,
+            ..SimnetConfig::default()
+        }],
+        rpc: RpcConfig {
+            bind_host: bind_host.to_string(),
+            bind_port,
+            ws_port,
+            ..Default::default()
+        },
+        ..SurfpoolConfig::default()
+    };
+
+    let (surfnet_svm, simnet_events_rx, geyser_events_rx) = test_type.initialize_svm();
+    let (simnet_commands_tx, simnet_commands_rx) = unbounded();
+
+    let svm_locker = SurfnetSvmLocker::new(surfnet_svm);
+
+    let _handle = hiro_system_kit::thread_named("test").spawn(move || {
+        let future = start_local_surfnet_runloop(
+            svm_locker,
+            config,
+            simnet_commands_tx,
+            simnet_commands_rx,
+            geyser_events_rx,
+        );
+        if let Err(e) = hiro_system_kit::nestable_block_on(future) {
+            panic!("{e:?}");
+        }
+    });
+
+    wait_for_ready_and_connected(&simnet_events_rx);
+
+    let minimal_client =
+        http::connect::<MinimalClient>(format!("http://{bind_host}:{bind_port}").as_str())
+            .await
+            .expect("Failed to connect to Surfpool");
+    let full_client =
+        http::connect::<FullClient>(format!("http://{bind_host}:{bind_port}").as_str())
+            .await
+            .expect("Failed to connect to Surfpool");
+
+    // Verify payer got airdrop
+    let payer_balance = minimal_client
+        .get_balance(payer.pubkey().to_string(), None)
+        .await
+        .expect("Failed to get payer balance");
+    assert_eq!(
+        payer_balance.value, airdrop_amount,
+        "Payer should have airdrop amount"
+    );
+
+    // Verify recipient starts with zero
+    let recipient_balance = minimal_client
+        .get_balance(recipient.to_string(), None)
+        .await
+        .expect("Failed to get recipient balance");
+    assert_eq!(
+        recipient_balance.value, 0,
+        "Recipient should start with zero balance"
+    );
+
+    // Get a recent blockhash
+    let recent_blockhash = full_client
+        .get_latest_blockhash(None)
+        .await
+        .map(|r| {
+            Hash::from_str(r.value.blockhash.as_str()).expect("Failed to deserialize blockhash")
+        })
+        .expect("Failed to get blockhash");
+
+    // Build a transaction with an INVALID signature (Signature::new_unique instead of real signing)
+    let msg = VersionedMessage::Legacy(Message::new_with_blockhash(
+        &[system_instruction::transfer(
+            &payer.pubkey(),
+            &recipient,
+            transfer_amount,
+        )],
+        Some(&payer.pubkey()),
+        &recent_blockhash,
+    ));
+    let tx = VersionedTransaction {
+        signatures: vec![solana_signature::Signature::new_unique()],
+        message: msg,
+    };
+
+    let encoded = bincode::serialize(&tx).expect("Failed to serialize tx");
+    let data = bs58::encode(encoded).into_string();
+
+    // Send with skip_sig_verify=true and skip_preflight=true
+    let send_config = SurfpoolRpcSendTransactionConfig {
+        base: RpcSendTransactionConfig {
+            skip_preflight: true,
+            ..Default::default()
+        },
+        skip_sig_verify: Some(true),
+    };
+    let _sig = full_client
+        .send_transaction(data, Some(send_config))
+        .await
+        .expect("send_transaction with skip_sig_verify should succeed");
+
+    // Wait for the transaction to be processed
+    let _ = task::spawn_blocking(move || {
+        loop {
+            match simnet_events_rx.recv() {
+                Ok(SimnetEvent::TransactionProcessed(..)) => break,
+                _ => (),
+            }
+        }
+    })
+    .await;
+
+    // Assert recipient received the transfer
+    let final_recipient_balance = minimal_client
+        .get_balance(recipient.to_string(), None)
+        .await
+        .expect("Failed to get final recipient balance");
+    assert_eq!(
+        final_recipient_balance.value, transfer_amount,
+        "Recipient should have received the transfer amount"
+    );
+
+    // Assert payer balance decreased by transfer + fees
+    let final_payer_balance = minimal_client
+        .get_balance(payer.pubkey().to_string(), None)
+        .await
+        .expect("Failed to get final payer balance");
+    assert!(
+        final_payer_balance.value < airdrop_amount - transfer_amount,
+        "Payer balance ({}) should be less than airdrop minus transfer ({}) due to fees",
+        final_payer_balance.value,
+        airdrop_amount - transfer_amount
+    );
+    assert!(
+        final_payer_balance.value > airdrop_amount - transfer_amount - LAMPORTS_PER_SOL / 10,
+        "Payer balance ({}) should not have decreased by more than transfer + reasonable fees",
+        final_payer_balance.value,
     );
 }

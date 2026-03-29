@@ -128,7 +128,10 @@ impl SurfnetLiteSvm {
         self.svm = LiteSVM::new()
             .with_blockhash_check(false)
             .with_sigverify(false)
-            .with_feature_set(feature_set);
+            .with_feature_set(feature_set)
+            .with_builtins()
+            .with_sysvars()
+            .with_default_programs();
 
         create_native_mint(self);
         self

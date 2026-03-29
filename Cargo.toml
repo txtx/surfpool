@@ -1,5 +1,5 @@
 [workspace.package]
-version = "1.0.0"
+version = "1.1.1"
 edition = "2024"
 description = "Surfpool is where developers start their Solana journey."
 license = "Apache-2.0"
@@ -14,10 +14,8 @@ members = [
     "crates/cli",
     "crates/core",
     "crates/db",
-    "crates/gql",
     "crates/mcp",
     "crates/studio",
-    "crates/subgraph",
     "crates/types",
 ]
 exclude = ["examples/*"]
@@ -27,7 +25,7 @@ resolver = "2"
 [workspace.dependencies]
 actix-cors = "0.7.0"
 actix-web = { version = "4", default-features = false }
-agave-feature-set = { version = "3.1", default-features = false }
+agave-feature-set = { version = "3.1.9", default-features = false }
 agave-geyser-plugin-interface = { version = "3.1", default-features = false }
 agave-reserved-account-keys = { version = "3.1", default-features = false }
 anchor-lang-idl = "0.1.2"
@@ -83,8 +81,8 @@ juniper_codegen = { version = "0.16.0", default-features = false }
 juniper_graphql_ws = { version = "0.4.0", default-features = false }
 lazy_static = "1.5.0"
 libloading = "0.7.4"
-litesvm = { version = "0.9.1", features = ["nodejs-internal"] }
-litesvm-token = "0.9.1"
+litesvm = { version = "0.10.0", features = ["nodejs-internal"] }
+litesvm-token = "0.10.0"
 log = "0.4.27"
 mime_guess = { version = "2.0.4", default-features = false }
 mustache = "0.9.0"
@@ -148,6 +146,7 @@ solana-version = { version = "3.1", default-features = false }
 spl-associated-token-account-interface = { version = "2.0.0", default-features = false }
 spl-token-2022-interface = { version = "2.0.0", default-features = false }
 spl-token-interface = { version = "2.0.0", default-features = false }
+spl-token-metadata-interface = { version = "0.8.0", default-features = false }
 tempfile = "3.23.0"
 test-case = "^3.3.1"
 thiserror = "2.0"
@@ -158,35 +157,28 @@ tracing = { version = "0.1.41", default-features = false }
 url = { version = "1.7.2", default-features = false }
 uuid = "1.15.1"
 zip = { version = "0.6", features = ["deflate"], default-features = false }
+sha2 = { version = "0.10" }
 
-surfpool-core = { path = "crates/core", default-features = false }
-surfpool-db = { path = "crates/db" }
-surfpool-gql = { path = "crates/gql", default-features = false }
-surfpool-mcp = { path = "crates/mcp", default-features = false }
-surfpool-studio-ui = { path = "crates/studio", default-features = false }
-surfpool-subgraph = { path = "crates/subgraph", default-features = false }
-surfpool-types = { path = "crates/types", default-features = false }
+surfpool-core = { path = "crates/core", default-features = false, version = "1.1.1"}
+surfpool-db = { path = "crates/db", version = "1.1.1" }
+surfpool-mcp = { path = "crates/mcp", default-features = false, version = "1.1.1" }
+surfpool-studio-ui = { path = "crates/studio", default-features = false, version = "0.1.1" }
+surfpool-types = { path = "crates/types", default-features = false, version = "1.1.1" }
 
-txtx-addon-kit = "0.4.12"
-txtx-addon-network-svm = { version = "0.3.19" }
-txtx-addon-network-svm-types = { version = "0.3.17" }
-txtx-cloud = { version = "0.1.14", features = [
-    "clap",
-    "toml",
-], default-features = false }
-txtx-core = { version = "0.4.14" }
-txtx-gql = { version = "0.3.8" }
-txtx-supervisor-ui = { version = "0.2.9", default-features = false }
+txtx-addon-kit = "0.4.14"
+txtx-addon-network-svm = { version = "0.3.21" }
+txtx-addon-network-svm-types = { version = "0.3.19" }
+txtx-core = { version = "0.4.16" }
+txtx-gql = { version = "0.3.10" }
+txtx-supervisor-ui = { version = "0.2.11", default-features = false }
 
 # [patch.crates-io]
-## Local
+# Local
 # txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
 # txtx-core = { path = "../txtx/crates/txtx-core" }
 # txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
 # txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
-# txtx-gql = { path = "../txtx/crates/txtx-gql" }
 # txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
-# txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
 
 ## Git
 # txtx-addon-kit = { git = "https://github.com/txtx/txtx.git", branch = "main" }

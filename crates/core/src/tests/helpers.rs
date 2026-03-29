@@ -5,11 +5,11 @@ use crossbeam_channel::Sender;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_transaction::versioned::VersionedTransaction;
-use surfpool_types::{RpcConfig, SimnetCommand};
+use surfpool_types::{CheatcodeConfig, RpcConfig, SimnetCommand};
 
 use crate::{
     rpc::RunloopContext,
-    surfnet::{locker::SurfnetSvmLocker, svm::SurfnetSvm},
+    surfnet::{PluginCommand, locker::SurfnetSvmLocker, svm::SurfnetSvm},
 };
 
 pub fn get_free_port() -> Result<u16, String> {
@@ -38,7 +38,6 @@ where
 {
     pub fn new(rpc: T) -> Self {
         let (simnet_commands_tx, _rx) = crossbeam_channel::unbounded();
-        let (plugin_manager_commands_tx, _rx) = crossbeam_channel::unbounded();
 
         let (mut surfnet_svm, _, _) = SurfnetSvm::default();
         let clock = Clock {
@@ -59,14 +58,17 @@ where
         };
         surfnet_svm.transactions_processed = 69;
 
+        let (plugin_commands_tx, _plugin_commands_rx) =
+            crossbeam_channel::unbounded::<PluginCommand>();
         TestSetup {
             context: RunloopContext {
                 simnet_commands_tx: simnet_commands_tx.clone(),
-                plugin_manager_commands_tx: plugin_manager_commands_tx.clone(),
                 id: None,
                 svm_locker: SurfnetSvmLocker::new(surfnet_svm),
                 remote_rpc_client: None,
                 rpc_config: RpcConfig::default(),
+                cheatcode_config: CheatcodeConfig::new(),
+                plugin_commands_tx,
             },
             rpc,
         }
@@ -104,7 +106,7 @@ where
             let _ = self
                 .context
                 .svm_locker
-                .process_transaction(&None, tx.clone(), status_tx.clone(), true, true)
+                .process_transaction(&None, tx.clone(), status_tx.clone(), true, false)
                 .await
                 .unwrap();
         }

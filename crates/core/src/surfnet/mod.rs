@@ -5,7 +5,11 @@ use jsonrpc_core::Result as RpcError;
 use locker::SurfnetSvmLocker;
 use solana_account::Account;
 use solana_account_decoder::{UiAccount, UiAccountEncoding};
-use solana_client::{rpc_config::RpcTransactionLogsFilter, rpc_response::RpcLogsResponse};
+use solana_client::{
+    rpc_config::RpcTransactionLogsFilter,
+    rpc_filter::RpcFilterType,
+    rpc_response::{RpcKeyedAccount, RpcLogsResponse},
+};
 use solana_clock::Slot;
 use solana_commitment_config::CommitmentLevel;
 use solana_epoch_info::EpochInfo;
@@ -18,11 +22,13 @@ use surfpool_types::{ExecutionCapture, ProfileResult};
 use svm::SurfnetSvm;
 
 use crate::{
+    PluginInfo,
     error::{SurfpoolError, SurfpoolResult},
     types::{GeyserAccountUpdate, TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta},
 };
 
 pub mod locker;
+pub mod noop_program;
 pub mod remote;
 pub mod surfnet_lite_svm;
 pub mod svm;
@@ -90,6 +96,26 @@ pub enum GeyserEvent {
     NotifyEntry(GeyserEntryInfo),
 }
 
+/// Commands sent from RPC to the geyser runloop for plugin management.
+pub enum PluginCommand {
+    Load {
+        config_file: String,
+        response_tx: Sender<Result<PluginInfo, String>>,
+    },
+    Unload {
+        name: String,
+        response_tx: Sender<Result<(), String>>,
+    },
+    Reload {
+        name: String,
+        config_file: String,
+        response_tx: Sender<Result<(), String>>,
+    },
+    List {
+        response_tx: Sender<Vec<PluginInfo>>,
+    },
+}
+
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct BlockIdentifier {
     pub index: u64,
@@ -135,6 +161,15 @@ pub type SignatureSubscriptionData = (
 
 pub type AccountSubscriptionData =
     HashMap<Pubkey, Vec<(Option<UiAccountEncoding>, Sender<UiAccount>)>>;
+
+pub type ProgramSubscriptionData = HashMap<
+    Pubkey,
+    Vec<(
+        Option<UiAccountEncoding>,
+        Option<Vec<RpcFilterType>>,
+        Sender<RpcKeyedAccount>,
+    )>,
+>;
 
 pub type LogsSubscriptionData = (
     CommitmentLevel,

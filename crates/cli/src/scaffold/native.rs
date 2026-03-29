@@ -13,6 +13,7 @@ use crate::types::Framework;
 /// it is considered a native project.
 pub fn try_get_programs_from_project(
     base_location: FileLocation,
+    artifacts_path: Option<&str>,
 ) -> Result<Option<(Framework, Vec<ProgramMetadata>)>> {
     let mut manifest_location = base_location.clone();
     manifest_location
@@ -29,6 +30,7 @@ pub fn try_get_programs_from_project(
             "solana-program",
             &base_location,
             &manifest,
+            artifacts_path,
         )?
         else {
             return Ok(None);
