@@ -1,6 +1,7 @@
-use std::net::TcpListener;
+use std::{net::TcpListener, path::PathBuf};
 
 use crossbeam_channel::{Receiver, Sender};
+use solana_client::rpc_request::RpcRequest;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
@@ -13,7 +14,10 @@ use surfpool_types::{
 use crate::{
     Cheatcodes,
     error::{SurfnetError, SurfnetResult},
+    report::{SurfnetReportData, TransactionReportEntry},
 };
+
+const DEFAULT_REPORT_DIR: &str = "target/surfpool-reports";
 
 /// Builder for configuring a [`Surfnet`] instance before starting it.
 ///
@@ -38,6 +42,9 @@ pub struct SurfnetBuilder {
     airdrop_addresses: Vec<Pubkey>,
     airdrop_lamports: u64,
     payer: Option<Keypair>,
+    report: Option<bool>,
+    report_dir: Option<PathBuf>,
+    test_name: Option<String>,
 }
 
 impl Default for SurfnetBuilder {
@@ -50,6 +57,9 @@ impl Default for SurfnetBuilder {
             airdrop_addresses: vec![],
             airdrop_lamports: 10_000_000_000, // 10 SOL
             payer: None,
+            report: None,
+            report_dir: None,
+            test_name: detect_test_name(),
         }
     }
 }
@@ -96,6 +106,25 @@ impl SurfnetBuilder {
     /// Use a specific keypair as the payer. If not set, a random one is generated.
     pub fn payer(mut self, keypair: Keypair) -> Self {
         self.payer = Some(keypair);
+        self
+    }
+
+    /// Enable or disable report data export on drop.
+    /// Overrides the `SURFPOOL_REPORT` env var.
+    pub fn report(mut self, enabled: bool) -> Self {
+        self.report = Some(enabled);
+        self
+    }
+
+    /// Set the directory for report data files. Default: `target/surfpool-reports`.
+    pub fn report_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.report_dir = Some(dir.into());
+        self
+    }
+
+    /// Set a label for this instance in the report (e.g. the test name).
+    pub fn test_name(mut self, name: impl Into<String>) -> Self {
+        self.test_name = Some(name.into());
         self
     }
 
@@ -158,12 +187,33 @@ impl SurfnetBuilder {
         // Wait for the runtime to signal ready
         wait_for_ready(&simnet_events_rx)?;
 
+        // Resolve report settings: builder override > env var
+        let report_enabled = self.report.unwrap_or_else(|| {
+            std::env::var("SURFPOOL_REPORT")
+                .map(|v| !v.is_empty() && v != "0" && v.to_lowercase() != "false")
+                .unwrap_or(false)
+        });
+
+        let report_dir = self.report_dir.unwrap_or_else(|| {
+            // If SURFPOOL_REPORT is a path (not "1" or "true"), use it as the directory
+            std::env::var("SURFPOOL_REPORT")
+                .ok()
+                .filter(|v| v != "1" && v.to_lowercase() != "true" && !v.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(DEFAULT_REPORT_DIR))
+        });
+
         Ok(Surfnet {
             rpc_url,
             ws_url,
             payer,
             simnet_commands_tx,
             simnet_events_rx,
+            svm_locker,
+            instance_id: uuid::Uuid::new_v4().to_string(),
+            report_enabled,
+            report_dir,
+            test_name: self.test_name,
         })
     }
 }
@@ -174,14 +224,23 @@ impl SurfnetBuilder {
 /// - Pre-funded payer keypair
 /// - [`RpcClient`] connected to the local instance
 /// - [`Cheatcodes`] for direct state manipulation (fund accounts, set token balances, etc.)
+/// - Report data export for test result visualization
 ///
-/// The instance is shut down when dropped.
+/// The instance is shut down when dropped. If reporting is enabled
+/// (via `SURFPOOL_REPORT=1` or `.report(true)`), transaction profiles
+/// are exported to disk before shutdown.
 pub struct Surfnet {
     rpc_url: String,
     ws_url: String,
     payer: Keypair,
     simnet_commands_tx: Sender<SimnetCommand>,
     simnet_events_rx: Receiver<SimnetEvent>,
+    #[allow(dead_code)] // retained for future direct profiling access
+    svm_locker: SurfnetSvmLocker,
+    instance_id: String,
+    report_enabled: bool,
+    report_dir: PathBuf,
+    test_name: Option<String>,
 }
 
 impl Surfnet {
@@ -231,10 +290,133 @@ impl Surfnet {
             .send(command)
             .map_err(|e| SurfnetError::Runtime(format!("failed to send command: {e}")))
     }
+
+    /// The unique instance ID for this surfnet.
+    pub fn instance_id(&self) -> &str {
+        &self.instance_id
+    }
+
+    /// Export all transaction profiles from this instance.
+    pub fn export_report_data(&self) -> SurfnetResult<SurfnetReportData> {
+        let client = self.rpc_client();
+
+        // Fetch all local signatures
+        let signatures_response: serde_json::Value = client
+            .send(
+                RpcRequest::Custom {
+                    method: "surfnet_getLocalSignatures",
+                },
+                serde_json::json!([200]),
+            )
+            .map_err(|e| SurfnetError::Report(format!("failed to fetch signatures: {e}")))?;
+
+        let entries = signatures_response
+            .get("value")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut transactions = Vec::with_capacity(entries.len());
+
+        for entry in &entries {
+            let signature = entry
+                .get("signature")
+                .and_then(|s| s.as_str())
+                .unwrap_or_default()
+                .to_string();
+
+            let error = entry
+                .get("err")
+                .filter(|e| !e.is_null())
+                .map(|e| e.to_string());
+
+            let logs = entry
+                .get("logs")
+                .and_then(|l| l.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            // Fetch full profile with jsonParsed encoding
+            let profile_json_parsed = client
+                .send::<serde_json::Value>(
+                    RpcRequest::Custom {
+                        method: "surfnet_getTransactionProfile",
+                    },
+                    serde_json::json!([signature, { "encoding": "jsonParsed" }]),
+                )
+                .ok()
+                .and_then(|resp| resp.get("value").cloned())
+                .filter(|v| !v.is_null());
+
+            // Fetch full profile with base64 encoding
+            let profile_base64 = client
+                .send::<serde_json::Value>(
+                    RpcRequest::Custom {
+                        method: "surfnet_getTransactionProfile",
+                    },
+                    serde_json::json!([signature, { "encoding": "base64" }]),
+                )
+                .ok()
+                .and_then(|resp| resp.get("value").cloned())
+                .filter(|v| !v.is_null());
+
+            let slot = profile_json_parsed
+                .as_ref()
+                .and_then(|p| p.get("slot"))
+                .and_then(|s| s.as_u64())
+                .unwrap_or(0);
+
+            transactions.push(TransactionReportEntry {
+                signature,
+                slot,
+                error,
+                logs,
+                profile_json_parsed,
+                profile_base64,
+            });
+        }
+
+        Ok(SurfnetReportData {
+            instance_id: self.instance_id.clone(),
+            test_name: self.test_name.clone(),
+            rpc_url: self.rpc_url.clone(),
+            transactions,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        })
+    }
+
+    /// Export report data and write it to the report directory.
+    /// Returns the path to the written JSON file.
+    pub fn write_report_data(&self) -> SurfnetResult<PathBuf> {
+        let data = self.export_report_data()?;
+        let dir = &self.report_dir;
+
+        std::fs::create_dir_all(dir)
+            .map_err(|e| SurfnetError::Report(format!("failed to create report dir: {e}")))?;
+
+        let path = dir.join(format!("{}.json", self.instance_id));
+        let json = serde_json::to_string_pretty(&data)
+            .map_err(|e| SurfnetError::Report(format!("failed to serialize report data: {e}")))?;
+
+        std::fs::write(&path, json)
+            .map_err(|e| SurfnetError::Report(format!("failed to write report file: {e}")))?;
+
+        log::info!("Surfnet report data written to {}", path.display());
+        Ok(path)
+    }
 }
 
 impl Drop for Surfnet {
     fn drop(&mut self) {
+        if self.report_enabled {
+            if let Err(e) = self.write_report_data() {
+                log::warn!("Failed to write surfnet report data: {e}");
+            }
+        }
         let _ = self.simnet_commands_tx.send(SimnetCommand::Terminate(None));
     }
 }
@@ -258,14 +440,40 @@ fn wait_for_ready(events_rx: &Receiver<SimnetEvent>) -> SurfnetResult<()> {
             Ok(SimnetEvent::Shutdown) => {
                 return Err(SurfnetError::Aborted(
                     "surfnet shut down during startup".into(),
-                ))
+                ));
             }
             Ok(_) => continue,
             Err(e) => {
                 return Err(SurfnetError::Startup(format!(
                     "events channel closed unexpectedly: {e}"
-                )))
+                )));
             }
         }
     }
+}
+
+/// Try to extract the test function name from the current thread.
+///
+/// Rust's test harness names each test thread after the test function
+/// (e.g. `my_module::my_test`). This works reliably for `#[test]` and
+/// `#[tokio::test]` with `current_thread`. For `multi_thread` tokio tests
+/// the builder is often constructed on a worker thread — we detect and
+/// skip those names.
+fn detect_test_name() -> Option<String> {
+    let thread = std::thread::current();
+    let name = thread.name()?;
+
+    // Filter out names that aren't test functions
+    if name == "main"
+        || name.starts_with("tokio-runtime")
+        || name.starts_with("surfnet")
+        || name.starts_with("Thread-")
+    {
+        return None;
+    }
+
+    // Rust test names look like "module::test_name" or just "test_name".
+    // Take the last segment for a clean display name.
+    let short = name.rsplit("::").next().unwrap_or(name);
+    Some(short.to_string())
 }

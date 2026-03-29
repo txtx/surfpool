@@ -1,5 +1,5 @@
-use solana_pubkey::Pubkey;
 use solana_client::rpc_request::RpcRequest;
+use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 
@@ -126,17 +126,10 @@ impl<'a> Cheatcodes<'a> {
         Ok(())
     }
 
-    fn call_cheatcode(
-        &self,
-        method: &'static str,
-        params: serde_json::Value,
-    ) -> SurfnetResult<()> {
+    fn call_cheatcode(&self, method: &'static str, params: serde_json::Value) -> SurfnetResult<()> {
         let client = self.rpc_client();
         client
-            .send::<serde_json::Value>(
-                RpcRequest::Custom { method },
-                params,
-            )
+            .send::<serde_json::Value>(RpcRequest::Custom { method }, params)
             .map_err(|e| SurfnetError::Cheatcode(format!("{method}: {e}")))?;
         Ok(())
     }

@@ -13,9 +13,12 @@ categories = { workspace = true }
 path = "src/lib.rs"
 
 [dependencies]
+chrono = { workspace = true }
 crossbeam-channel = { workspace = true }
 hiro-system-kit = { workspace = true }
 log = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 solana-account = { workspace = true }
 solana-client = { workspace = true }
 solana-clock = { workspace = true }
@@ -27,7 +30,7 @@ solana-signer = { workspace = true }
 spl-associated-token-account-interface = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 
 surfpool-core = { workspace = true }
 surfpool-types = { workspace = true }

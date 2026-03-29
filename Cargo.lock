@@ -11300,9 +11300,11 @@ dependencies = [
 name = "surfpool-sdk"
 version = "1.1.1"
 dependencies = [
+ "chrono",
  "crossbeam-channel",
  "hiro-system-kit",
  "log 0.4.29",
+ "serde",
  "serde_json",
  "solana-account 3.3.0",
  "solana-client",
@@ -11322,6 +11324,7 @@ dependencies = [
  "surfpool-types",
  "thiserror 2.0.17",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

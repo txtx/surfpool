@@ -14,6 +14,8 @@ pub enum SurfnetError {
     Cheatcode(String),
     /// The surfnet was shut down or aborted during startup
     Aborted(String),
+    /// A report operation failed
+    Report(String),
 }
 
 impl fmt::Display for SurfnetError {
@@ -24,6 +26,7 @@ impl fmt::Display for SurfnetError {
             SurfnetError::Runtime(msg) => write!(f, "surfnet runtime error: {msg}"),
             SurfnetError::Cheatcode(msg) => write!(f, "cheatcode failed: {msg}"),
             SurfnetError::Aborted(msg) => write!(f, "surfnet aborted: {msg}"),
+            SurfnetError::Report(msg) => write!(f, "report error: {msg}"),
         }
     }
 }

@@ -16,18 +16,31 @@
 //!     assert!(balance > 0);
 //! }
 //! ```
+//!
+//! ## Reporting
+//!
+//! Set `SURFPOOL_REPORT=1` to automatically export transaction data on drop,
+//! then generate a consolidated HTML report:
+//!
+//! ```rust,no_run
+//! use surfpool_sdk::report::SurfpoolReport;
+//!
+//! // After tests complete:
+//! let report = SurfpoolReport::from_directory("target/surfpool-reports").unwrap();
+//! report.write_html("target/surfpool-report.html").unwrap();
+//! ```
 
 mod cheatcodes;
 mod error;
+pub mod report;
 mod surfnet;
 
 pub use cheatcodes::Cheatcodes;
 pub use error::{SurfnetError, SurfnetResult};
-pub use surfnet::{Surfnet, SurfnetBuilder};
-
 // Re-export key Solana types for convenience
 pub use solana_keypair::Keypair;
 pub use solana_pubkey::Pubkey;
 pub use solana_rpc_client::rpc_client::RpcClient;
 pub use solana_signer::Signer;
+pub use surfnet::{Surfnet, SurfnetBuilder};
 pub use surfpool_types::BlockProductionMode;
