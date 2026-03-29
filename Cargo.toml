@@ -16,6 +16,7 @@ members = [
     "crates/db",
     "crates/mcp",
     "crates/sdk",
+    "crates/sdk-node",
     "crates/studio",
     "crates/types",
 ]

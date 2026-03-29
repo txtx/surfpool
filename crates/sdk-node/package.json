@@ -1,0 +1,35 @@
+{
+  "name": "surfpool-sdk",
+  "version": "0.1.0",
+  "description": "Embed a Surfpool Solana runtime in your Node.js tests",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/"
+  ],
+  "napi": {
+    "name": "surfpool-sdk",
+    "triples": {
+      "defaults": false,
+      "additional": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-unknown-linux-musl",
+        "universal-apple-darwin"
+      ]
+    }
+  },
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "napi build --platform --release surfpool-sdk --dts internal.d.ts --js internal.js",
+    "build:debug": "napi build --platform surfpool-sdk --dts internal.d.ts --js internal.js",
+    "artifacts": "napi artifacts",
+    "tsc": "tsc && cp surfpool-sdk/internal.d.ts dist/internal.d.ts",
+    "prepublishOnly": "napi prepublish -t npm"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4",
+    "typescript": "^5.7.0"
+  }
+}
