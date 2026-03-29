@@ -1,0 +1,149 @@
+name: Surfpool Report
+description: >
+  Post a single PR comment with code coverage table and a link to the
+  Surfpool transaction report on GitHub Pages.
+
+inputs:
+  rust-coverage-json:
+    description: Path to cargo-llvm-cov JSON output
+    required: false
+  ts-coverage-json:
+    description: Path to vitest coverage-summary.json
+    required: false
+  report-path:
+    description: Path to the Surfpool HTML report file
+    required: false
+  pages-path:
+    description: Path prefix on GitHub Pages (e.g. "pr/1")
+    default: pr/${{ github.event.pull_request.number }}
+  green-threshold:
+    description: Line coverage % for green badge
+    default: "90"
+  yellow-threshold:
+    description: Line coverage % for yellow badge
+    default: "80"
+  comment-header:
+    description: Sticky comment header ID
+    default: surfpool
+
+runs:
+  using: composite
+  steps:
+    # ── Deploy report to GitHub Pages ──
+    - name: Deploy report
+      if: inputs.report-path != '' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        REPORT_FILE: ${{ inputs.report-path }}
+        PAGES_PATH: ${{ inputs.pages-path }}
+      run: |
+        if [ ! -f "${REPORT_FILE}" ]; then
+          echo "No report file at ${REPORT_FILE}, skipping deploy"
+          exit 0
+        fi
+
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        cp "${REPORT_FILE}" /tmp/surfpool-report.html
+
+        if git ls-remote --exit-code origin gh-pages >/dev/null 2>&1; then
+          git fetch origin gh-pages
+          git checkout gh-pages
+        else
+          git checkout --orphan gh-pages
+          git rm -rf . 2>/dev/null || true
+          echo "# GitHub Pages" > README.md
+          git add README.md
+          git commit -m "init: gh-pages branch"
+        fi
+
+        mkdir -p "${PAGES_PATH}"
+        cp /tmp/surfpool-report.html "${PAGES_PATH}/index.html"
+
+        git add "${PAGES_PATH}/index.html"
+        git commit -m "deploy: surfpool report for ${PAGES_PATH}" || true
+        git push origin gh-pages
+        git checkout -
+
+    - name: Upload report artifact
+      if: inputs.report-path != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: surfpool-report
+        path: ${{ inputs.report-path }}
+
+    # ── Build the unified comment ──
+    - name: Build comment
+      id: comment
+      shell: bash
+      env:
+        RS_JSON: ${{ inputs.rust-coverage-json }}
+        TS_JSON: ${{ inputs.ts-coverage-json }}
+        GREEN: ${{ inputs.green-threshold }}
+        YELLOW: ${{ inputs.yellow-threshold }}
+        REPORT_FILE: ${{ inputs.report-path }}
+        PAGES_PATH: ${{ inputs.pages-path }}
+        REPO_OWNER: ${{ github.repository_owner }}
+        REPO_NAME: ${{ github.event.repository.name }}
+      run: |
+        badge() {
+          local val=$1
+          if [ "$(echo "$val >= $GREEN" | bc -l 2>/dev/null)" = "1" ]; then echo "🟢"
+          elif [ "$(echo "$val >= $YELLOW" | bc -l 2>/dev/null)" = "1" ]; then echo "🟡"
+          else echo "🔴"; fi
+        }
+
+        {
+          echo "body<<EOFCOMMENT"
+
+          # ── Coverage table ──
+          HAS_COV=false
+          ROWS=""
+
+          if [ -n "$TS_JSON" ] && [ -f "$TS_JSON" ]; then
+            HAS_COV=true
+            TS_STMTS=$(jq -r '.total.statements.pct' "$TS_JSON")
+            TS_BRANCH=$(jq -r '.total.branches.pct' "$TS_JSON")
+            TS_FUNC=$(jq -r '.total.functions.pct' "$TS_JSON")
+            TS_LINES=$(jq -r '.total.lines.pct' "$TS_JSON")
+            TS_BADGE=$(badge "$TS_LINES")
+            ROWS="${ROWS}| ${TS_BADGE} **TypeScript** | ${TS_STMTS}% | ${TS_BRANCH}% | ${TS_FUNC}% | ${TS_LINES}% |
+          "
+          fi
+
+          if [ -n "$RS_JSON" ] && [ -f "$RS_JSON" ]; then
+            HAS_COV=true
+            RS_LINES=$(jq -r '[.data[0].totals.lines.percent] | .[0] | . * 10 | round / 10' "$RS_JSON")
+            RS_FUNC=$(jq -r '[.data[0].totals.functions.percent] | .[0] | . * 10 | round / 10' "$RS_JSON")
+            RS_REGIONS=$(jq -r '[.data[0].totals.regions.percent] | .[0] | . * 10 | round / 10' "$RS_JSON")
+            RS_BADGE=$(badge "$RS_LINES")
+            ROWS="${ROWS}| ${RS_BADGE} **Rust** | ${RS_REGIONS}% | — | ${RS_FUNC}% | ${RS_LINES}% |
+          "
+          fi
+
+          if [ "$HAS_COV" = "true" ]; then
+            echo "## Test Coverage"
+            echo ""
+            echo "| | Statements | Branches | Functions | Lines |"
+            echo "|---|---|---|---|---|"
+            echo "$ROWS"
+          fi
+
+          # ── Report link ──
+          if [ -n "$REPORT_FILE" ] && [ -f "$REPORT_FILE" ]; then
+            echo ""
+            echo "---"
+            echo ""
+            echo "**[Surfpool Report](https://${REPO_OWNER}.github.io/${REPO_NAME}/${PAGES_PATH}/)** — transaction profiling, account state diffs, byte comparison"
+          fi
+
+          echo "EOFCOMMENT"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Post comment
+      if: github.event_name == 'pull_request'
+      uses: marocchino/sticky-pull-request-comment@v2
+      with:
+        header: ${{ inputs.comment-header }}
+        message: ${{ steps.comment.outputs.body }}

@@ -1,0 +1,3 @@
+surfpool-sdk.*.node
+node_modules/
+dist/
