@@ -2111,10 +2111,13 @@ async fn test_profile_transaction_multi_instruction_basic(test_type: TestType) {
             encoding: Some(UiAccountEncoding::JsonParsed),
             depth: Some(RpcProfileDepth::Instruction),
         };
-        let profile_result = svm_locker
-            .get_profile_result(key, &rpc_profile_config)
-            .unwrap()
-            .expect("Profile result should exist");
+        let profile_result = crate::tests::helpers::poll_for_instruction_profiles(
+            &svm_locker,
+            key,
+            &rpc_profile_config,
+            Duration::from_secs(10),
+        )
+        .await;
 
         println!(
             "Profile result with Instruction depth: {}",
@@ -2599,10 +2602,13 @@ async fn test_profile_transaction_token_transfer(test_type: TestType) {
             depth: Some(RpcProfileDepth::Instruction),
         };
         let key = UuidOrSignature::Uuid(profile_result.inner);
-        let ui_profile_result = svm_locker
-            .get_profile_result(key, &rpc_profile_config)
-            .unwrap()
-            .expect("Profile result should exist");
+        let ui_profile_result = crate::tests::helpers::poll_for_instruction_profiles(
+            &svm_locker,
+            key,
+            &rpc_profile_config,
+            Duration::from_secs(10),
+        )
+        .await;
 
         assert!(
             ui_profile_result
@@ -3040,10 +3046,13 @@ async fn test_profile_transaction_multi_instruction_failure(test_type: TestType)
         .inner;
 
     let key = UuidOrSignature::Uuid(uuid);
-    let profile_result = svm_locker
-        .get_profile_result(key, &RpcProfileResultConfig::default())
-        .unwrap()
-        .expect("Profile result should exist");
+    let profile_result = crate::tests::helpers::poll_for_instruction_profiles(
+        &svm_locker,
+        key,
+        &RpcProfileResultConfig::default(),
+        Duration::from_secs(10),
+    )
+    .await;
 
     // Verify transaction profile shows failure
     assert!(
@@ -4190,13 +4199,13 @@ async fn test_ix_profiling_with_alt_tx(test_type: TestType) {
         .unwrap();
     let profile_result_uuid = binding.inner();
 
-    let profile_result = svm_locker
-        .get_profile_result(
-            UuidOrSignature::Uuid(*profile_result_uuid),
-            &RpcProfileResultConfig::default(),
-        )
-        .unwrap()
-        .unwrap();
+    let profile_result = crate::tests::helpers::poll_for_instruction_profiles(
+        &svm_locker,
+        UuidOrSignature::Uuid(*profile_result_uuid),
+        &RpcProfileResultConfig::default(),
+        Duration::from_secs(10),
+    )
+    .await;
     let ix_profiles = profile_result
         .instruction_profiles
         .as_ref()
@@ -4401,13 +4410,13 @@ async fn test_compute_budget_profiling(test_type: TestType) {
         .await
         .unwrap()
         .inner;
-    let profile_result = svm_locker
-        .get_profile_result(
-            UuidOrSignature::Uuid(uuid),
-            &RpcProfileResultConfig::default(),
-        )
-        .unwrap()
-        .unwrap();
+    let profile_result = crate::tests::helpers::poll_for_instruction_profiles(
+        &svm_locker,
+        UuidOrSignature::Uuid(uuid),
+        &RpcProfileResultConfig::default(),
+        Duration::from_secs(10),
+    )
+    .await;
 
     let ix_profile = profile_result.instruction_profiles.unwrap();
     assert_eq!(ix_profile.len(), 3, "Should have 3 instruction profiles");
@@ -7976,12 +7985,15 @@ async fn test_instruction_profiling_does_not_mutate_state(test_type: TestType) {
         "process_transaction should complete (success or failure)"
     );
 
-    // Retrieve the profile result using the signature
+    // Retrieve the profile result using the signature, polling for instruction profiles
     let key = UuidOrSignature::Signature(signature);
-    let profile_result = svm_locker
-        .get_profile_result(key, &RpcProfileResultConfig::default())
-        .unwrap()
-        .expect("Profile result should exist for executed transaction");
+    let profile_result = crate::tests::helpers::poll_for_instruction_profiles(
+        &svm_locker,
+        key,
+        &RpcProfileResultConfig::default(),
+        Duration::from_secs(10),
+    )
+    .await;
 
     // Verify the overall transaction failed (due to second instruction)
     assert!(
