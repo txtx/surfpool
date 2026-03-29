@@ -131,6 +131,50 @@ impl SurfpoolReport {
         log::info!("Surfpool report written to {}", path.display());
         Ok(())
     }
+
+    /// One-liner: read report data from a directory and write an HTML report.
+    ///
+    /// Uses default paths if not specified:
+    /// - `report_dir`: `target/surfpool-reports`
+    /// - `output`: `target/surfpool-report.html`
+    ///
+    /// Intended for use in a `#[test]` function:
+    /// ```rust,no_run
+    /// #[test]
+    /// fn generate_report() {
+    ///     surfpool_sdk::report::SurfpoolReport::generate(None, None);
+    /// }
+    /// ```
+    pub fn generate(report_dir: Option<&str>, output: Option<&str>) {
+        let dir = report_dir.unwrap_or("target/surfpool-reports");
+        let out = output.unwrap_or("target/surfpool-report.html");
+
+        if !std::path::Path::new(dir).exists() {
+            eprintln!("No report data at {dir}. Run tests with SURFPOOL_REPORT=1 first.");
+            return;
+        }
+
+        let report = match Self::from_directory(dir) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Failed to read report data: {e}");
+                return;
+            }
+        };
+
+        println!(
+            "Surfpool report: {} instances, {} transactions ({} failed)",
+            report.instances.len(),
+            report.total_transactions(),
+            report.failed_transactions()
+        );
+
+        if let Err(e) = report.write_html(out) {
+            eprintln!("Failed to write report: {e}");
+        } else {
+            println!("Report written to {out}");
+        }
+    }
 }
 
 /// Generate a standalone HTML report styled to match surfpool.run.
