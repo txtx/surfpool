@@ -1,0 +1,26 @@
+{
+  "name": "@surfpool/kit",
+  "version": "0.1.0",
+  "description": "Typed @solana/kit plugin for Surfnet cheatcode RPC methods",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "files": [
+    "src/"
+  ],
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test",
+    "generate": "cd ../.. && TS_RS_LARGE_INT=number cargo test --features ts -p surfpool-types -p surfpool-core export_bindings && cp crates/types/bindings/*.ts crates/sdk-kit/src/generated/ && cp crates/core/bindings/*.ts crates/sdk-kit/src/generated/ && bun run crates/sdk-kit/scripts/generate.ts"
+  },
+  "dependencies": {
+    "@solana/kit": "^6.5.0",
+    "@solana/kit-plugin-instruction-plan": "^0.9.0",
+    "@solana/kit-plugin-payer": "^0.9.0",
+    "@solana/kit-plugin-rpc": "^0.9.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}
