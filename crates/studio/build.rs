@@ -28,6 +28,14 @@ fn main() {
             .send()
             .expect("Failed to download dist zip");
 
+        if !resp.status().is_success() {
+            panic!(
+                "Failed to download studio UI: HTTP {} from {}",
+                resp.status(),
+                url
+            );
+        }
+
         let reader = std::io::Cursor::new(resp.bytes().unwrap());
         let mut zip = zip::ZipArchive::new(reader).unwrap();
 
