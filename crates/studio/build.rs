@@ -4,15 +4,38 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let asset_dir = out_dir.join("surfpool-studio-ui");
 
+    println!("cargo:rerun-if-env-changed=STUDIO_UI_VERSION");
     println!("cargo:warning=------------ Studio Build Script ------------");
-    // Skip if already extracted
+
     if !asset_dir.join("_next").exists() {
-        println!(
-            "cargo:warning=Extracting Surfpool Studio UI assets to {}",
-            asset_dir.display()
-        );
-        let url = "https://txtx-public.s3.amazonaws.com/surfpool-studio-ui/latest.zip";
-        let resp = reqwest::blocking::get(url).expect("Failed to download dist zip");
+        let url = match env::var("STUDIO_UI_VERSION") {
+            Ok(version) => format!(
+                "https://github.com/solana-foundation/surfpool-web-ui/releases/download/{}/studio-dist.zip",
+                version
+            ),
+            Err(_) => {
+                "https://github.com/solana-foundation/surfpool-web-ui/releases/latest/download/studio-dist.zip"
+                    .to_string()
+            }
+        };
+
+        println!("cargo:warning=Downloading Surfpool Studio UI from {}", url);
+
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .get(&url)
+            .header("User-Agent", "surfpool-studio-build")
+            .send()
+            .expect("Failed to download dist zip");
+
+        if !resp.status().is_success() {
+            panic!(
+                "Failed to download studio UI: HTTP {} from {}",
+                resp.status(),
+                url
+            );
+        }
+
         let reader = std::io::Cursor::new(resp.bytes().unwrap());
         let mut zip = zip::ZipArchive::new(reader).unwrap();
 
