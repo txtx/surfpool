@@ -10,11 +10,11 @@ fn main() {
     if !asset_dir.join("_next").exists() {
         let url = match env::var("STUDIO_UI_VERSION") {
             Ok(version) => format!(
-                "https://github.com/txtx/surfpool-web-ui/releases/download/{}/studio-dist.zip",
+                "https://github.com/solana-foundation/surfpool-web-ui/releases/download/{}/studio-dist.zip",
                 version
             ),
             Err(_) => {
-                "https://github.com/txtx/surfpool-web-ui/releases/latest/download/studio-dist.zip"
+                "https://github.com/solana-foundation/surfpool-web-ui/releases/latest/download/studio-dist.zip"
                     .to_string()
             }
         };
