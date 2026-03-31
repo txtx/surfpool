@@ -653,6 +653,7 @@ impl SurfnetSvm {
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
         log_bytes_limit: Option<usize>,
+        stake_history_account: Option<Account>,
     ) {
         self.chain_tip = self.new_blockhash();
         self.latest_epoch_info = epoch_info.clone();
@@ -673,6 +674,16 @@ impl SurfnetSvm {
         }
 
         self.inner.set_sysvar(&epoch_schedule);
+
+        // Set StakeHistory from remote if available. The Stake program accesses this
+        // sysvar via the get_sysvar syscall (not as a transaction account), so it must
+        // be proactively populated.
+        if let Some(account) = stake_history_account {
+            let _ = self.inner.svm.set_account(
+                solana_sdk_ids::sysvar::stake_history::id(),
+                account,
+            );
+        }
 
         if let Some(remote_client) = remote_ctx {
             let _ = self

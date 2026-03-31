@@ -126,9 +126,12 @@ impl SurfnetLiteSvm {
         // - RecentBlockhashes: for blockhash validation
         // - SlotHashes: for ALT resolution
         // - Clock: for time-dependent programs
+        // - StakeHistory: for Stake program Split/Deactivate instructions (accessed via syscall)
         let recent_blockhashes = self.svm.get_sysvar::<RecentBlockhashes>();
         let slot_hashes = self.svm.get_sysvar::<SlotHashes>();
         let clock = self.svm.get_sysvar::<Clock>();
+        let stake_history_account =
+            self.svm.get_account(&solana_sdk_ids::sysvar::stake_history::id());
 
         // todo: this is also resetting the log bytes limit and airdrop keypair, would be nice to avoid
         self.svm = Self::full_litesvm_settings(feature_set);
@@ -139,6 +142,11 @@ impl SurfnetLiteSvm {
         self.svm.set_sysvar(&recent_blockhashes);
         self.svm.set_sysvar(&slot_hashes);
         self.svm.set_sysvar(&clock);
+        if let Some(account) = stake_history_account {
+            let _ = self
+                .svm
+                .set_account(solana_sdk_ids::sysvar::stake_history::id(), account);
+        }
     }
 
     pub fn apply_feature_config(&mut self, feature_set: FeatureSet) -> &mut Self {

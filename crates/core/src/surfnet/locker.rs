@@ -236,6 +236,19 @@ impl SurfnetSvmLocker {
         };
         epoch_info.transaction_count = None;
 
+        // Fetch StakeHistory sysvar from remote if available. Native programs access
+        // this via get_sysvar syscall, not as a transaction account, so Surfpool must
+        // proactively populate it.
+        let stake_history_account = if let Some(remote_client) = remote_ctx {
+            remote_client
+                .get_raw_account(&solana_sdk_ids::sysvar::stake_history::id())
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+
         self.with_svm_writer(|svm_writer| {
             svm_writer.initialize(
                 epoch_info.clone(),
@@ -244,6 +257,7 @@ impl SurfnetSvmLocker {
                 remote_ctx,
                 do_profile_instructions,
                 log_bytes_limit,
+                stake_history_account,
             );
         });
         Ok(epoch_info)
@@ -2010,9 +2024,29 @@ impl SurfnetSvmLocker {
         };
         epoch_info.transaction_count = None;
 
+        // Re-fetch StakeHistory from remote after reset (same as initialize)
+        let stake_history_account = if let Some(remote_client) = remote_ctx {
+            remote_client
+                .get_raw_account(&solana_sdk_ids::sysvar::stake_history::id())
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+
         self.with_svm_writer(move |svm_writer| {
             let _ = svm_writer.reset_network(epoch_info);
             let _ = svm_writer.offline_accounts.clear();
+            // Restore StakeHistory after reset — it's accessed via syscall by the Stake
+            // program and is lost during reset_network since reconstruct_sysvars doesn't
+            // rebuild it.
+            if let Some(account) = stake_history_account {
+                let _ = svm_writer.inner.svm.set_account(
+                    solana_sdk_ids::sysvar::stake_history::id(),
+                    account,
+                );
+            }
         });
         Ok(())
     }
