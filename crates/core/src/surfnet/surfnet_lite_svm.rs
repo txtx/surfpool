@@ -122,23 +122,32 @@ impl SurfnetLiteSvm {
             return;
         }
 
-        // Preserve all critical sysvars across garbage collection
+        // Preserve all critical sysvars/config accounts across garbage collection
         // - RecentBlockhashes: for blockhash validation
         // - SlotHashes: for ALT resolution
         // - Clock: for time-dependent programs
         // - StakeHistory: for Stake program Split/Deactivate instructions (accessed via syscall)
+        // - StakeConfig: LiteSVM default is too small for the Stake program to deserialize
+        // - Stake program + programdata: mainnet version replaces outdated bundled ELF
         let recent_blockhashes = self.svm.get_sysvar::<RecentBlockhashes>();
         let slot_hashes = self.svm.get_sysvar::<SlotHashes>();
         let clock = self.svm.get_sysvar::<Clock>();
         let stake_history_account =
             self.svm.get_account(&solana_sdk_ids::sysvar::stake_history::id());
+        let stake_config_account =
+            self.svm.get_account(&solana_sdk_ids::stake::config::id());
+        let stake_program_account =
+            self.svm.get_account(&solana_sdk_ids::stake::id());
+        let stake_programdata_account = self.svm.get_account(
+            &solana_loader_v3_interface::get_program_data_address(&solana_sdk_ids::stake::id()),
+        );
 
         // todo: this is also resetting the log bytes limit and airdrop keypair, would be nice to avoid
         self.svm = Self::full_litesvm_settings(feature_set);
 
         create_native_mint(self);
 
-        // Restore all preserved sysvars
+        // Restore all preserved sysvars/config accounts
         self.svm.set_sysvar(&recent_blockhashes);
         self.svm.set_sysvar(&slot_hashes);
         self.svm.set_sysvar(&clock);
@@ -146,6 +155,24 @@ impl SurfnetLiteSvm {
             let _ = self
                 .svm
                 .set_account(solana_sdk_ids::sysvar::stake_history::id(), account);
+        }
+        if let Some(account) = stake_config_account {
+            let _ = self
+                .svm
+                .set_account(solana_sdk_ids::stake::config::id(), account);
+        }
+        // Restore the mainnet Stake program (programdata first, then program account
+        // to trigger program cache recompilation)
+        if let (Some(programdata), Some(program)) =
+            (stake_programdata_account, stake_program_account)
+        {
+            let programdata_address = solana_loader_v3_interface::get_program_data_address(
+                &solana_sdk_ids::stake::id(),
+            );
+            let _ = self.svm.set_account(programdata_address, programdata);
+            let _ = self
+                .svm
+                .set_account(solana_sdk_ids::stake::id(), program);
         }
     }
 
