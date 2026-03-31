@@ -5,7 +5,7 @@ use std::{
     time::SystemTime,
 };
 
-use agave_feature_set::{FeatureSet, enable_extend_program_checked};
+use agave_feature_set::FeatureSet;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use convert_case::Casing;
@@ -421,12 +421,6 @@ impl SurfnetSvm {
     ) -> SurfpoolResult<(Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>)> {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
-
-        // let mut feature_set = FeatureSet::default();
-
-        // todo: remove once txtx deployments upgrade solana dependencies.
-        // todo: consider making this configurable via config
-        // feature_set.deactivate(&enable_extend_program_checked::id());
 
         let inner = SurfnetLiteSvm::new().initialize(database_url, surfnet_id)?;
 
