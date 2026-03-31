@@ -2,6 +2,7 @@ use std::{
     env,
     error::Error,
     io,
+    sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
 
@@ -448,8 +449,28 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
         }
     });
 
+    let ctrlc_simnet_cmd_tx_clone = app.simnet_commands_tx.clone();
+
+    let should_exit = Arc::new(RwLock::new(false));
+    let should_exit_read = Arc::clone(&should_exit);
+    let should_exit_write = Arc::clone(&should_exit);
+
+    ctrlc::set_handler(move || {
+        // Send terminate command to allow graceful shutdown (Drop to run)
+        let _ = ctrlc_simnet_cmd_tx_clone.send(SimnetCommand::Terminate(None));
+        // .unwrap should be fine here since it's the only place that will receive
+        *should_exit_write.write().unwrap() = true;
+    })
+    .expect("Error setting Ctrl-C handler");
+
     let mut deployment_completed = false;
     loop {
+        if let Ok(should_exit_loop) = should_exit_read.read()
+            && *should_exit_loop
+        {
+            return Ok(());
+        }
+
         let mut selector = Select::new();
         let mut handles = vec![];
         let mut new_events = vec![];
@@ -701,6 +722,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
             app.tail();
         }
 
+        #[allow(clippy::collapsible_if)]
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key_event) = event::read()? {
                 if key_event.kind == KeyEventKind::Press {
