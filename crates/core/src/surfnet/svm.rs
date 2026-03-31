@@ -28,7 +28,6 @@ use solana_clock::{Clock, Slot};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_epoch_schedule::EpochSchedule;
-use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
 use solana_inflation::Inflation;
@@ -295,10 +294,6 @@ pub struct SurfnetSvm {
     /// Tracks the slot at which we last persisted the checkpoint.
     pub last_checkpoint_slot: u64,
 }
-
-pub const FEATURE: Feature = Feature {
-    activated_at: Some(0),
-};
 
 impl SurfnetSvm {
     pub fn default() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
@@ -906,25 +901,6 @@ impl SurfnetSvm {
             block_height,
             signatures: vec![],
         }
-    }
-
-    pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
-        // Currently, liteSVM doesn't create feature gate accounts and store them in the vm,
-        // so when a user is fetching one, we make one on the fly.
-        // TODO: remove once https://github.com/LiteSVM/litesvm/pull/308 is released
-        self.feature_set.active().get(pubkey).map(|_| {
-            let feature_bytes = bincode::serialize(&FEATURE).unwrap();
-            let lamports = self
-                .inner
-                .minimum_balance_for_rent_exemption(feature_bytes.len());
-            Account {
-                lamports,
-                data: feature_bytes,
-                owner: solana_sdk_ids::feature::id(),
-                executable: false,
-                rent_epoch: 0,
-            }
-        })
     }
 
     /// Reconstructs RecentBlockhashes, SlotHashes, and Clock sysvars deterministically
