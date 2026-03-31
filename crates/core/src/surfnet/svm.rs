@@ -5,7 +5,7 @@ use std::{
     time::SystemTime,
 };
 
-use agave_feature_set::{FeatureSet, enable_extend_program_checked};
+use agave_feature_set::FeatureSet;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use convert_case::Casing;
@@ -28,7 +28,6 @@ use solana_clock::{Clock, Slot};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_epoch_schedule::EpochSchedule;
-use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
 use solana_inflation::Inflation;
@@ -296,10 +295,6 @@ pub struct SurfnetSvm {
     pub last_checkpoint_slot: u64,
 }
 
-pub const FEATURE: Feature = Feature {
-    activated_at: Some(0),
-};
-
 impl SurfnetSvm {
     pub fn default() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
         Self::new(None, "0").unwrap()
@@ -422,14 +417,7 @@ impl SurfnetSvm {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
 
-        let mut feature_set = FeatureSet::all_enabled();
-
-        // todo: remove once txtx deployments upgrade solana dependencies.
-        // todo: consider making this configurable via config
-        feature_set.deactivate(&enable_extend_program_checked::id());
-
-        let inner =
-            SurfnetLiteSvm::new().initialize(feature_set.clone(), database_url, surfnet_id)?;
+        let inner = SurfnetLiteSvm::new().initialize(database_url, surfnet_id)?;
 
         let native_mint_account = inner
             .get_account(&spl_token_interface::native_mint::ID)?
@@ -598,7 +586,7 @@ impl SurfnetSvm {
             inflation: Inflation::default(),
             write_version: 0,
             registered_idls: registered_idls_db,
-            feature_set,
+            feature_set: FeatureSet::default(),
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             runbook_executions: Vec::new(),
@@ -627,16 +615,19 @@ impl SurfnetSvm {
     /// # Arguments
     /// * `config` - The feature configuration specifying which features to enable/disable.
     pub fn apply_feature_config(&mut self, config: &SvmFeatureConfig) {
+        let mut starting_set = FeatureSet::all_enabled();
         // Apply explicit enables
         for pubkey in &config.enable {
-            self.feature_set.activate(pubkey, 0);
+            debug!("Activating feature {}", pubkey);
+            starting_set.activate(pubkey, 0);
         }
 
         // Apply explicit disables
         for pubkey in &config.disable {
-            self.feature_set.deactivate(pubkey);
+            debug!("Deactivating feature {}", pubkey);
+            starting_set.deactivate(pubkey);
         }
-
+        self.feature_set = starting_set;
         // Rebuild inner VM with updated feature set
         self.inner.apply_feature_config(self.feature_set.clone());
     }
@@ -722,6 +713,7 @@ impl SurfnetSvm {
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> SurfpoolResult<TransactionResult> {
         // Capture pre-airdrop balances for the airdrop account, recipient, and system program.
         let airdrop_pubkey = self.inner.airdrop_pubkey();
+        println!("Airdrop pubkey: {}", airdrop_pubkey);
 
         let airdrop_account_before = self
             .get_account(&airdrop_pubkey)?
@@ -909,25 +901,6 @@ impl SurfnetSvm {
             block_height,
             signatures: vec![],
         }
-    }
-
-    pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
-        // Currently, liteSVM doesn't create feature gate accounts and store them in the vm,
-        // so when a user is fetching one, we make one on the fly.
-        // TODO: remove once https://github.com/LiteSVM/litesvm/pull/308 is released
-        self.feature_set.active().get(pubkey).map(|_| {
-            let feature_bytes = bincode::serialize(&FEATURE).unwrap();
-            let lamports = self
-                .inner
-                .minimum_balance_for_rent_exemption(feature_bytes.len());
-            Account {
-                lamports,
-                data: feature_bytes,
-                owner: solana_sdk_ids::feature::id(),
-                executable: false,
-                rent_epoch: 0,
-            }
-        })
     }
 
     /// Reconstructs RecentBlockhashes, SlotHashes, and Clock sysvars deterministically
@@ -4248,14 +4221,17 @@ mod tests {
     fn test_apply_feature_config_disable_feature(test_type: TestType) {
         let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
-        // Feature should be active by default (all_enabled)
+        // Feature should be inactive by default (all_disabled)
         let feature_id = disable_fees_sysvar::id();
+        assert!(!svm.feature_set.is_active(&feature_id));
+
+        // Now applying feature config defaults to all enabled
+        svm.apply_feature_config(&SvmFeatureConfig::new());
         assert!(svm.feature_set.is_active(&feature_id));
 
-        // Now disable it via config
+        // But we can explicitly disable via config
         let config = SvmFeatureConfig::new().disable(disable_fees_sysvar::id());
         svm.apply_feature_config(&config);
-
         assert!(!svm.feature_set.is_active(&feature_id));
     }
 

@@ -22,6 +22,8 @@ use crate::{
     surfnet::{GetAccountResult, locker::is_supported_token_program},
 };
 
+pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
+
 #[derive(Clone)]
 pub struct SurfnetLiteSvm {
     pub svm: LiteSVM,
@@ -31,7 +33,7 @@ pub struct SurfnetLiteSvm {
 impl SurfnetLiteSvm {
     pub fn new() -> Self {
         Self {
-            svm: LiteSVM::new(),
+            svm: LiteSVM::default(),
             db: None,
         }
     }
@@ -49,16 +51,37 @@ impl SurfnetLiteSvm {
         }
     }
 
+    /// Initializes LiteSVM with as few settings as possible; for initial startup of VM
+    /// that will be overriden later when more context is available.
+    fn base_litesvm_settings() -> LiteSVM {
+        LiteSVM::default()
+            .with_feature_set(FeatureSet::default()) // start with all features enabled, but don't load feature accounts
+            .with_builtins()
+            .with_lamports(1_000_000u64.wrapping_mul(LAMPORTS_PER_SOL))
+            .with_sysvars()
+            .with_default_programs()
+            .with_blockhash_check(false)
+            .with_sigverify(false)
+    }
+
+    /// Initializes LiteSVM with full settings; starts with base settings, then adds in
+    /// features and other setup that depends on the feature set.
+    fn full_litesvm_settings(feature_set: FeatureSet) -> LiteSVM {
+        Self::base_litesvm_settings()
+            .with_feature_set(feature_set)
+            .with_feature_accounts()
+            .with_builtins()
+            .with_sysvars()
+            .with_default_programs()
+    }
+
     pub fn initialize(
         mut self,
-        feature_set: FeatureSet,
+        // feature_set: FeatureSet,
         database_url: Option<&str>,
         surfnet_id: &str,
     ) -> SurfpoolResult<Self> {
-        self.svm = LiteSVM::new()
-            .with_blockhash_check(false)
-            .with_sigverify(false)
-            .with_feature_set(feature_set);
+        self.svm = Self::base_litesvm_settings();
 
         create_native_mint(&mut self);
 
@@ -79,10 +102,7 @@ impl SurfnetLiteSvm {
     }
 
     pub fn reset(&mut self, feature_set: FeatureSet) -> SurfpoolResult<()> {
-        self.svm = LiteSVM::new()
-            .with_blockhash_check(false)
-            .with_sigverify(false)
-            .with_feature_set(feature_set);
+        self.svm = Self::full_litesvm_settings(feature_set);
 
         create_native_mint(self);
 
@@ -111,10 +131,7 @@ impl SurfnetLiteSvm {
         let clock = self.svm.get_sysvar::<Clock>();
 
         // todo: this is also resetting the log bytes limit and airdrop keypair, would be nice to avoid
-        self.svm = LiteSVM::new()
-            .with_blockhash_check(false)
-            .with_sigverify(false)
-            .with_feature_set(feature_set);
+        self.svm = Self::full_litesvm_settings(feature_set);
 
         create_native_mint(self);
 
@@ -125,13 +142,7 @@ impl SurfnetLiteSvm {
     }
 
     pub fn apply_feature_config(&mut self, feature_set: FeatureSet) -> &mut Self {
-        self.svm = LiteSVM::new()
-            .with_blockhash_check(false)
-            .with_sigverify(false)
-            .with_feature_set(feature_set)
-            .with_builtins()
-            .with_sysvars()
-            .with_default_programs();
+        self.svm = Self::full_litesvm_settings(feature_set);
 
         create_native_mint(self);
         self
