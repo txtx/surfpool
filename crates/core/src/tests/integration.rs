@@ -4603,6 +4603,185 @@ async fn test_reset_streamed_account_cascade(test_type: TestType) {
 #[test_case(TestType::in_memory(); "with in-memory sqlite db")]
 #[test_case(TestType::no_db(); "with no db")]
 #[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_stream_accounts_multiple(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let p1 = Keypair::new();
+    let p2 = Keypair::new();
+    let p3 = Keypair::new();
+
+    // Airdrop to all three accounts
+    for kp in [&p1, &p2, &p3] {
+        svm_locker
+            .airdrop(&kp.pubkey(), LAMPORTS_PER_SOL)
+            .unwrap()
+            .unwrap();
+    }
+
+    let _ = svm_locker.confirm_current_block(&None).await;
+
+    // All accounts exist
+    assert!(!svm_locker.get_account_local(&p1.pubkey()).inner.is_none());
+    assert!(!svm_locker.get_account_local(&p2.pubkey()).inner.is_none());
+    assert!(!svm_locker.get_account_local(&p3.pubkey()).inner.is_none());
+
+    // Stream all three accounts at once
+    for kp in [&p1, &p2, &p3] {
+        svm_locker.stream_account(kp.pubkey(), false).unwrap();
+    }
+
+    let _ = svm_locker.confirm_current_block(&None).await;
+
+    // All accounts should be evicted
+    assert!(
+        svm_locker.get_account_local(&p1.pubkey()).inner.is_none(),
+        "First streamed account should be deleted"
+    );
+    assert!(
+        svm_locker.get_account_local(&p2.pubkey()).inner.is_none(),
+        "Second streamed account should be deleted"
+    );
+    assert!(
+        svm_locker.get_account_local(&p3.pubkey()).inner.is_none(),
+        "Third streamed account should be deleted"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_stream_accounts_with_cascade(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    // Create two owners each with an owned account
+    let owner1 = Pubkey::new_unique();
+    let owned1 = Pubkey::new_unique();
+    let owner2 = Pubkey::new_unique();
+    let owned2 = Pubkey::new_unique();
+
+    svm_locker
+        .with_svm_writer(|svm_writer| {
+            svm_writer
+                .set_account(
+                    &owner1,
+                    Account {
+                        lamports: 10 * LAMPORTS_PER_SOL,
+                        data: vec![0x01],
+                        owner: solana_sdk_ids::system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            svm_writer
+                .set_account(
+                    &owned1,
+                    Account {
+                        lamports: 5 * LAMPORTS_PER_SOL,
+                        data: vec![0x02],
+                        owner: owner1,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            svm_writer
+                .set_account(
+                    &owner2,
+                    Account {
+                        lamports: 10 * LAMPORTS_PER_SOL,
+                        data: vec![0x03],
+                        owner: solana_sdk_ids::system_program::id(),
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            svm_writer
+                .set_account(
+                    &owned2,
+                    Account {
+                        lamports: 5 * LAMPORTS_PER_SOL,
+                        data: vec![0x04],
+                        owner: owner2,
+                        executable: false,
+                        rent_epoch: 0,
+                    },
+                )
+                .unwrap();
+            Ok::<(), SurfpoolError>(())
+        })
+        .unwrap();
+
+    // Verify all accounts exist
+    assert!(!svm_locker.get_account_local(&owner1).inner.is_none());
+    assert!(!svm_locker.get_account_local(&owned1).inner.is_none());
+    assert!(!svm_locker.get_account_local(&owner2).inner.is_none());
+    assert!(!svm_locker.get_account_local(&owned2).inner.is_none());
+
+    let _ = svm_locker.confirm_current_block(&None).await;
+
+    // Stream both owners with cascade
+    svm_locker.stream_account(owner1, true).unwrap();
+    svm_locker.stream_account(owner2, true).unwrap();
+
+    let _ = svm_locker.confirm_current_block(&None).await;
+
+    // All four accounts should be evicted
+    assert!(
+        svm_locker.get_account_local(&owner1).inner.is_none(),
+        "First owner should be deleted"
+    );
+    assert!(
+        svm_locker.get_account_local(&owned1).inner.is_none(),
+        "First owned account should be deleted"
+    );
+    assert!(
+        svm_locker.get_account_local(&owner2).inner.is_none(),
+        "Second owner should be deleted"
+    );
+    assert!(
+        svm_locker.get_account_local(&owned2).inner.is_none(),
+        "Second owned account should be deleted"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_stream_accounts_empty(test_type: TestType) {
+    let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+
+    let p1 = Keypair::new();
+    svm_locker
+        .airdrop(&p1.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
+
+    let _ = svm_locker.confirm_current_block(&None).await;
+    assert!(!svm_locker.get_account_local(&p1.pubkey()).inner.is_none());
+
+    // Streaming zero accounts should not error and should not affect existing accounts
+    let _ = svm_locker.confirm_current_block(&None).await;
+
+    assert!(
+        !svm_locker.get_account_local(&p1.pubkey()).inner.is_none(),
+        "Existing account should not be affected when no accounts are streamed"
+    );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
 fn test_reset_network(test_type: TestType) {
     let (svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
     let svm_locker = SurfnetSvmLocker::new(svm_instance);
