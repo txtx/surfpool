@@ -713,7 +713,6 @@ impl SurfnetSvm {
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> SurfpoolResult<TransactionResult> {
         // Capture pre-airdrop balances for the airdrop account, recipient, and system program.
         let airdrop_pubkey = self.inner.airdrop_pubkey();
-        println!("Airdrop pubkey: {}", airdrop_pubkey);
 
         let airdrop_account_before = self
             .get_account(&airdrop_pubkey)?
