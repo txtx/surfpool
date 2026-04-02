@@ -60,6 +60,7 @@ impl SurfnetLiteSvm {
             .with_lamports(1_000_000u64.wrapping_mul(LAMPORTS_PER_SOL))
             .with_sysvars()
             .with_default_programs()
+            .with_precompiles()
             .with_blockhash_check(false)
             .with_sigverify(false)
     }
@@ -341,4 +342,64 @@ fn create_native_mint(svm: &mut SurfnetLiteSvm) {
     };
     svm.set_account(spl_token_interface::native_mint::ID, account)
         .expect("Failed to create native mint account in SVM");
+}
+#[cfg(test)]
+mod tests {
+    use ed25519_dalek::Signer as DalekSigner;
+    use solana_compute_budget_interface::ComputeBudgetInstruction;
+    use solana_ed25519_program::new_ed25519_instruction_with_signature;
+    use solana_keypair::Keypair;
+    use solana_message::{Message, VersionedMessage};
+    use solana_signer::Signer;
+    use solana_transaction::versioned::VersionedTransaction;
+
+    use super::*;
+
+    fn build_ed25519_transaction(
+        payer: &Keypair,
+        blockhash: solana_hash::Hash,
+    ) -> VersionedTransaction {
+        let payer_dalek = ed25519_dalek::Keypair::from_bytes(&payer.to_bytes())
+            .expect("failed to create dalek keypair");
+        let message = b"surfpool ed25519 precompile regression";
+        let signature = payer_dalek.sign(message);
+        let ed25519_ix = new_ed25519_instruction_with_signature(
+            message,
+            &signature.to_bytes(),
+            payer.pubkey().as_array(),
+        );
+        let compute_budget_ixs = [
+            ComputeBudgetInstruction::set_compute_unit_limit(100_000),
+            ComputeBudgetInstruction::set_compute_unit_price(1),
+        ];
+
+        let tx_message = Message::new_with_blockhash(
+            &[
+                compute_budget_ixs[0].clone(),
+                compute_budget_ixs[1].clone(),
+                ed25519_ix,
+            ],
+            Some(&payer.pubkey()),
+            &blockhash,
+        );
+
+        VersionedTransaction::try_new(VersionedMessage::Legacy(tx_message), &[&payer])
+            .expect("failed to create ed25519 transaction")
+    }
+
+    #[test]
+    fn test_base_litesvm_settings_registers_ed25519_precompile() {
+        let mut svm = SurfnetLiteSvm::base_litesvm_settings();
+        let payer = Keypair::new();
+        svm.airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+            .expect("failed to fund test payer");
+        let tx = build_ed25519_transaction(&payer, svm.latest_blockhash());
+
+        let result = svm.send_transaction(tx);
+
+        assert!(
+            result.is_ok(),
+            "ed25519 precompile should be available in base_litesvm_settings"
+        );
+    }
 }

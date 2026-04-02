@@ -4775,6 +4775,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "347d8c652d592c618ac996f2ab21f8c0b0f2da3fbbca227a6887ee61bb75f2de"
 dependencies = [
  "agave-feature-set",
+ "agave-precompiles",
  "agave-reserved-account-keys",
  "agave-syscalls",
  "ansi_term",
@@ -11210,6 +11211,7 @@ dependencies = [
  "convert_case 0.8.0",
  "crossbeam",
  "crossbeam-channel",
+ "ed25519-dalek 1.0.1",
  "env_logger",
  "hex",
  "hiro-system-kit",
@@ -11240,6 +11242,7 @@ dependencies = [
  "solana-clock 3.0.0",
  "solana-commitment-config",
  "solana-compute-budget-interface",
+ "solana-ed25519-program",
  "solana-epoch-info",
  "solana-epoch-schedule 3.0.0",
  "solana-feature-gate-interface 3.1.0",
