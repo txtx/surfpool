@@ -15,7 +15,6 @@ use actix_web::{
     middleware, post,
     web::{self, Data, route},
 };
-use convert_case::{Case, Casing};
 use crossbeam::channel::{Receiver, Select, Sender};
 use juniper_actix::{graphiql_handler, graphql_handler, subscriptions};
 use juniper_graphql_ws::ConnectionConfig;

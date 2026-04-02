@@ -11150,7 +11150,6 @@ dependencies = [
  "chrono",
  "clap",
  "clap_complete",
- "convert_case 0.8.0",
  "crossbeam",
  "crossterm",
  "ctrlc",

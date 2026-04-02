@@ -7,7 +7,6 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use convert_case::{Case, Casing};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use txtx_addon_network_svm::templates::{AccountDirEntry, AccountEntry};
@@ -620,12 +619,7 @@ fn deser_programs(
             let cluster: Cluster = cluster.parse()?;
             let programs = programs
                 .iter()
-                .map(|(name, value)| {
-                    Ok((
-                        name.to_case(Case::Snake),
-                        AnchorProgramDeployment::new(value)?,
-                    ))
-                })
+                .map(|(name, value)| Ok((name.to_string(), AnchorProgramDeployment::new(value)?)))
                 .collect::<Result<BTreeMap<String, AnchorProgramDeployment>>>()?;
             Ok((cluster, programs))
         })
@@ -637,4 +631,52 @@ pub struct BuildConfig {
     pub verifiable: bool,
     pub solana_version: Option<String>,
     pub docker_image: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::*;
+
+    fn temp_test_dir(test_name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("surfpool-anchor-{test_name}-{unique}"))
+    }
+
+    #[test]
+    fn preserves_anchor_program_name_without_snake_case_conversion() {
+        let base_dir = temp_test_dir("preserve-program-name");
+        fs::create_dir_all(base_dir.join("target/deploy")).expect("test dir should be created");
+        fs::write(base_dir.join("target/deploy/project2.so"), [])
+            .expect("test .so file should be created");
+        fs::write(
+            base_dir.join("Anchor.toml"),
+            r#"
+[programs.localnet]
+project2 = "11111111111111111111111111111111"
+"#,
+        )
+        .expect("Anchor.toml should be created");
+
+        let base_location =
+            FileLocation::from_path_string(base_dir.to_string_lossy().as_ref()).unwrap();
+
+        let framework_data = try_get_programs_from_project(base_location, &[], None)
+            .expect("lookup should succeed")
+            .expect("anchor project should be detected");
+
+        assert_eq!(framework_data.programs.len(), 1);
+        assert_eq!(framework_data.programs[0].name, "project2");
+        assert!(framework_data.programs[0].so_exists);
+
+        fs::remove_dir_all(&base_dir).expect("test dir should be cleaned up");
+    }
 }

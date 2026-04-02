@@ -22,7 +22,6 @@ atty = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, optional = true }
 clap_complete = { workspace = true, optional = true }
-convert_case = { workspace = true }
 crossbeam = { workspace = true }
 crossterm = { workspace = true }
 ctrlc = { workspace = true, optional = true }
