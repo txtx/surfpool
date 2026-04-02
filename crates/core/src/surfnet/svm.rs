@@ -653,6 +653,9 @@ impl SurfnetSvm {
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
         log_bytes_limit: Option<usize>,
+        stake_history_account: Option<Account>,
+        stake_config_account: Option<Account>,
+        stake_program_accounts: Option<(Account, Account)>,
     ) {
         self.chain_tip = self.new_blockhash();
         self.latest_epoch_info = epoch_info.clone();
@@ -673,6 +676,45 @@ impl SurfnetSvm {
         }
 
         self.inner.set_sysvar(&epoch_schedule);
+
+        // Set StakeHistory from remote if available. The Stake program accesses this
+        // sysvar via the get_sysvar syscall (not as a transaction account), so it must
+        // be proactively populated.
+        if let Some(account) = stake_history_account {
+            let _ = self.inner.svm.set_account(
+                solana_sdk_ids::sysvar::stake_history::id(),
+                account,
+            );
+        }
+
+        // Overwrite the default StakeConfig with real mainnet data. LiteSVM creates a
+        // minimal default (10 bytes) that the Stake program cannot deserialize, causing
+        // DelegateStake to fail with InvalidAccountData.
+        #[allow(deprecated)]
+        if let Some(account) = stake_config_account {
+            let _ = self.inner.svm.set_account(
+                solana_sdk_ids::stake::config::id(),
+                account,
+            );
+        }
+
+        // Replace the bundled Stake program with the live mainnet version.
+        // LiteSVM ships core_bpf_stake-1.0.1.so which was compiled against an older
+        // VoteStateVersions enum that doesn't include V4. Mainnet vote accounts now
+        // use V4, so DelegateStake fails with InvalidAccountData when it tries to
+        // deserialize them. Loading the current mainnet Stake program resolves this.
+        if let Some((program_account, programdata_account)) = stake_program_accounts {
+            let programdata_address =
+                solana_loader_v3_interface::get_program_data_address(&solana_sdk_ids::stake::id());
+            let _ = self
+                .inner
+                .svm
+                .set_account(programdata_address, programdata_account);
+            let _ = self
+                .inner
+                .svm
+                .set_account(solana_sdk_ids::stake::id(), program_account);
+        }
 
         if let Some(remote_client) = remote_ctx {
             let _ = self

@@ -96,6 +96,21 @@ impl SurfnetRemoteClient {
         self.client.get_epoch_schedule().await.map_err(Into::into)
     }
 
+    /// Fetches a raw account by pubkey without any classification logic (token, program, etc.).
+    /// Useful for fetching sysvar accounts that are accessed via syscalls rather than as
+    /// transaction accounts.
+    pub async fn get_raw_account(
+        &self,
+        pubkey: &Pubkey,
+    ) -> SurfpoolResult<Option<Account>> {
+        let res = self
+            .client
+            .get_account_with_commitment(pubkey, CommitmentConfig::finalized())
+            .await
+            .map_err(|e| SurfpoolError::get_account(*pubkey, e))?;
+        Ok(res.value)
+    }
+
     pub async fn get_account(
         &self,
         pubkey: &Pubkey,
