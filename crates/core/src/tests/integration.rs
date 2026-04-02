@@ -2,6 +2,7 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 
 use base64::Engine;
 use crossbeam_channel::{unbounded, unbounded as crossbeam_unbounded};
+use ed25519_dalek::Signer as DalekSigner;
 use jsonrpc_core::{
     Error, Result as JsonRpcResult,
     futures::future::{self, join_all},
@@ -18,6 +19,7 @@ use solana_client::{
 use solana_clock::{Clock, Slot};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_compute_budget_interface::ComputeBudgetInstruction;
+use solana_ed25519_program::new_ed25519_instruction_with_signature;
 use solana_epoch_info::EpochInfo;
 use solana_hash::Hash;
 use solana_keypair::Keypair;
@@ -750,6 +752,83 @@ async fn test_simulate_transaction_no_signers(test_type: TestType) {
         simulation_res.value.loaded_accounts_data_size.unwrap() > 0,
         "Expected loaded_accounts_data_size to be greater than 0"
     );
+}
+
+#[test_case(TestType::sqlite(); "with on-disk sqlite db")]
+#[test_case(TestType::in_memory(); "with in-memory sqlite db")]
+#[test_case(TestType::no_db(); "with no db")]
+#[cfg_attr(feature = "postgres", test_case(TestType::postgres(); "with postgres db"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_transaction_with_ed25519_instruction(test_type: TestType) {
+    let payer = Keypair::new();
+    let (mut svm_instance, _simnet_events_rx, _geyser_events_rx) = test_type.initialize_svm();
+    svm_instance
+        .airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+        .unwrap()
+        .unwrap();
+    let recent_blockhash = svm_instance.latest_blockhash();
+
+    // Issue #587 previously failed here with:
+    // "Transaction simulation failed: Error processing Instruction 2: Unsupported program id".
+    let tx = {
+        let payer_dalek =
+            ed25519_dalek::Keypair::from_bytes(&payer.to_bytes()).expect("invalid dalek keypair");
+        let message = b"surfpool ed25519 precompile integration test";
+        let signature = payer_dalek.sign(message);
+        let ed25519_ix = new_ed25519_instruction_with_signature(
+            message,
+            &signature.to_bytes(),
+            payer.pubkey().as_array(),
+        );
+        let compute_budget_ixs = [
+            ComputeBudgetInstruction::set_compute_unit_limit(100_000),
+            ComputeBudgetInstruction::set_compute_unit_price(1),
+        ];
+        let tx_message = Message::new_with_blockhash(
+            &[
+                compute_budget_ixs[0].clone(),
+                compute_budget_ixs[1].clone(),
+                ed25519_ix,
+            ],
+            Some(&payer.pubkey()),
+            &recent_blockhash,
+        );
+
+        VersionedTransaction::try_new(VersionedMessage::Legacy(tx_message), &[payer])
+            .expect("Failed to create ed25519 transaction")
+    };
+    let svm_locker = SurfnetSvmLocker::new(svm_instance);
+    let simulation_res = svm_locker.simulate_transaction(tx.clone(), true);
+
+    assert!(
+        simulation_res.is_ok(),
+        "Expected ed25519 transaction simulation to succeed"
+    );
+
+    let (status_tx, status_rx) = unbounded();
+    let _ = svm_locker
+        .process_transaction(&None, tx, status_tx, true, true)
+        .await
+        .unwrap();
+
+    // Wait for transaction processing
+    match status_rx.recv() {
+        Ok(TransactionStatusEvent::Success(_)) => {
+            println!("Transaction processed successfully");
+        }
+        Ok(TransactionStatusEvent::SimulationFailure((error, _))) => {
+            panic!("Transaction simulation failed: {:?}", error);
+        }
+        Ok(TransactionStatusEvent::ExecutionFailure((error, _))) => {
+            panic!("Transaction execution failed: {:?}", error);
+        }
+        Ok(TransactionStatusEvent::VerificationFailure(error)) => {
+            panic!("Transaction verification failed: {}", error);
+        }
+        Err(e) => {
+            panic!("Failed to receive transaction status: {:?}", e);
+        }
+    }
 }
 
 #[cfg_attr(feature = "ignore_tests_ci", ignore = "flaky CI tests")]

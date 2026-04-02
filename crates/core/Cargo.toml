@@ -103,8 +103,10 @@ txtx-addon-network-svm = { workspace = true }
 
 
 [dev-dependencies]
+ed25519-dalek = "1.0.1"
 test-case = { workspace = true }
 env_logger = "0.11"
+solana-ed25519-program = { workspace = true }
 tempfile = { workspace = true }
 spl-token-metadata-interface = { workspace = true }
 
