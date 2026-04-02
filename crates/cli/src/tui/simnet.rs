@@ -2,6 +2,7 @@ use std::{
     env,
     error::Error,
     io,
+    sync::{Arc, RwLock, atomic::AtomicBool},
     time::{Duration, Instant},
 };
 
@@ -448,8 +449,25 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
         }
     });
 
+    let ctrlc_simnet_cmd_tx_clone = app.simnet_commands_tx.clone();
+
+    let should_exit = Arc::new(AtomicBool::new(false));
+    let should_exit_read = Arc::clone(&should_exit);
+    let should_exit_write = Arc::clone(&should_exit);
+
+    ctrlc::set_handler(move || {
+        // Send terminate command to allow graceful shutdown (Drop to run)
+        let _ = ctrlc_simnet_cmd_tx_clone.send(SimnetCommand::Terminate(None));
+        should_exit_write.store(true, std::sync::atomic::Ordering::Release);
+    })
+    .expect("Error setting Ctrl-C handler");
+
     let mut deployment_completed = false;
     loop {
+        if should_exit_read.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok(());
+        }
+
         let mut selector = Select::new();
         let mut handles = vec![];
         let mut new_events = vec![];
