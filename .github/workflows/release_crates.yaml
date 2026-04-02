@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - ci/release
+      - release/v1.1.2
 
 jobs:
   publish:

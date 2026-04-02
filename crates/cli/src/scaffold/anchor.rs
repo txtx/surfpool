@@ -7,7 +7,6 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use convert_case::{Case, Casing};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use txtx_addon_network_svm::templates::{AccountDirEntry, AccountEntry};
@@ -670,7 +669,7 @@ fn deser_programs(
                 .iter()
                 .map(|(name, value)| {
                     Ok((
-                        name.to_case(Case::Snake),
+                        name.to_string(),
                         AnchorProgramDeployment::new(name, value, base_location)?,
                     ))
                 })
