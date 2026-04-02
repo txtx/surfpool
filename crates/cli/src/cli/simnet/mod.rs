@@ -228,8 +228,7 @@ pub async fn handle_start_local_surfnet_command(
             local_version = format!("{}-ci", local_version);
         }
         let response = txtx_gql::kit::reqwest::get(format!(
-            "{}/api/versions?v=/{}",
-            super::DEFAULT_CLOUD_URL,
+            "https://cloud.txtx.run/api/versions?v=/{}",
             local_version
         ))
         .await;

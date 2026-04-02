@@ -2,7 +2,7 @@ use std::{
     env,
     error::Error,
     io,
-    sync::{Arc, RwLock, atomic::AtomicBool},
+    sync::{Arc, atomic::AtomicBool},
     time::{Duration, Instant},
 };
 
