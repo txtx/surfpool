@@ -68,7 +68,7 @@ txtx-supervisor-ui = { workspace = true, optional = true }
 
 [features]
 default = ["cli", "sqlite", "register-tracing"]
-cli = ["clap/derive", "clap/env", "clap_complete", "toml/parse", "ctrlc", "hiro-system-kit/log"]
+cli = ["clap/derive", "clap/env", "clap/help", "clap/usage", "clap_complete", "toml/parse", "ctrlc", "hiro-system-kit/log"]
 supervisor_ui = ["txtx-supervisor-ui"]
 explorer = []
 geyser_plugin = ["surfpool-core/geyser_plugin"]
