@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{Result, anyhow};
-use convert_case::{Case, Casing};
 use serde::Deserialize;
 use txtx_gql::kit::helpers::fs::FileLocation;
 
@@ -23,7 +22,7 @@ pub fn get_program_metadata_from_manifest_with_dep(
         return Ok(None);
     };
 
-    let program_name = package.name.to_case(Case::Snake);
+    let program_name = package.name;
 
     let so_exists = {
         let so_path_str = if let Some(artifacts) = artifacts_path {
@@ -133,4 +132,89 @@ pub struct DependencyDetail {
     pub version: Option<String>,
     pub features: Option<Vec<String>>,
     pub path: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::*;
+
+    fn temp_test_dir(test_name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("surfpool-{test_name}-{unique}"))
+    }
+
+    fn manifest_with_solana_program(package_name: &str) -> CargoManifestFile {
+        CargoManifestFile::from_manifest_str(&format!(
+            r#"
+                [package]
+                name = "{package_name}"
+                version = "0.1.0"
+
+                [dependencies]
+                solana-program = "3"
+            "#
+        ))
+        .expect("manifest should parse")
+    }
+
+    #[test]
+    fn preserves_cargo_package_name_without_snake_case_conversion() {
+        let base_dir = temp_test_dir("preserve-package-name");
+        fs::create_dir_all(base_dir.join("target/deploy")).expect("test dir should be created");
+        fs::write(base_dir.join("target/deploy/project2.so"), [])
+            .expect("test .so file should be created");
+
+        let base_location =
+            FileLocation::from_path_string(base_dir.to_string_lossy().as_ref()).unwrap();
+        let manifest = manifest_with_solana_program("project2");
+
+        let metadata = get_program_metadata_from_manifest_with_dep(
+            "solana-program",
+            &base_location,
+            &manifest,
+            None,
+        )
+        .expect("lookup should succeed")
+        .expect("program metadata should be returned");
+
+        assert_eq!(metadata.name, "project2");
+        assert!(metadata.so_exists);
+
+        fs::remove_dir_all(&base_dir).expect("test dir should be cleaned up");
+    }
+
+    #[test]
+    fn preserves_existing_snake_case_package_name() {
+        let base_dir = temp_test_dir("preserve-snake-case-name");
+        fs::create_dir_all(base_dir.join("target/deploy")).expect("test dir should be created");
+        fs::write(base_dir.join("target/deploy/project_2.so"), [])
+            .expect("test .so file should be created");
+
+        let base_location =
+            FileLocation::from_path_string(base_dir.to_string_lossy().as_ref()).unwrap();
+        let manifest = manifest_with_solana_program("project_2");
+
+        let metadata = get_program_metadata_from_manifest_with_dep(
+            "solana-program",
+            &base_location,
+            &manifest,
+            None,
+        )
+        .expect("lookup should succeed")
+        .expect("program metadata should be returned");
+
+        assert_eq!(metadata.name, "project_2");
+        assert!(metadata.so_exists);
+
+        fs::remove_dir_all(&base_dir).expect("test dir should be cleaned up");
+    }
 }
