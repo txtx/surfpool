@@ -947,7 +947,7 @@ pub trait Full {
     /// - `address`: The base-58 encoded address to query.
     /// - `config` (optional): Configuration object with the following fields:
     ///   - `before`: Start search before this signature.
-    ///   - `until`: Search until this signature (inclusive).
+    ///   - `until`: Search until this signature (exclusive).
     ///   - `limit`: Maximum number of results to return (default: 1,000; max: 1,000).
     ///   - `commitment`: The level of commitment desired (e.g., finalized).
     ///   - `minContextSlot`: The minimum slot that the query should be evaluated at.
@@ -2913,7 +2913,7 @@ mod tests {
     #[test]
     fn test_request_airdrop() {
         let pk = Pubkey::new_unique();
-        let lamports = 1000;
+        let lamports = 1_000_000;
         let setup = TestSetup::new(SurfpoolFullRpc);
         let res = setup
             .rpc

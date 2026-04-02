@@ -14,10 +14,8 @@ members = [
     "crates/cli",
     "crates/core",
     "crates/db",
-    "crates/gql",
     "crates/mcp",
     "crates/studio",
-    "crates/subgraph",
     "crates/types",
 ]
 exclude = ["examples/*"]
@@ -83,8 +81,8 @@ juniper_codegen = { version = "0.16.0", default-features = false }
 juniper_graphql_ws = { version = "0.4.0", default-features = false }
 lazy_static = "1.5.0"
 libloading = "0.7.4"
-litesvm = { version = "0.10.0", features = ["nodejs-internal"] }
-litesvm-token = "0.10.0"
+litesvm = { version = "0.11.0", features = ["nodejs-internal", "precompiles"] }
+litesvm-token = "0.11.0"
 log = "0.4.27"
 mime_guess = { version = "2.0.4", default-features = false }
 mustache = "0.9.0"
@@ -114,7 +112,8 @@ solana-commitment-config = { version = "3.1", default-features = false }
 solana-compute-budget-interface = { version = "3.0", default-features = false }
 solana-epoch-info = { version = "3.1", default-features = false }
 solana-epoch-schedule = { version = "3.0", default-features = false }
-solana-feature-gate-interface = { version = "3.0", default-features = false }
+solana-ed25519-program = { version = "3.0", default-features = false }
+solana-feature-gate-interface = { version = "3.1", default-features = false }
 solana-genesis-config = { version = "3.0", default-features = false }
 # solana-geyser-plugin-manager = { version = "=3.1.6", default-features = false }  # Disabled: version conflicts with litesvm 0.9.1 (requires solana-instruction =3.0.0 vs ~3.1)
 solana-hash = { version = "3.1", default-features = false }
@@ -159,35 +158,28 @@ tracing = { version = "0.1.41", default-features = false }
 url = { version = "1.7.2", default-features = false }
 uuid = "1.15.1"
 zip = { version = "0.6", features = ["deflate"], default-features = false }
+sha2 = { version = "0.10" }
 
-surfpool-core = { path = "crates/core", default-features = false }
-surfpool-db = { path = "crates/db" }
-surfpool-gql = { path = "crates/gql", default-features = false }
-surfpool-mcp = { path = "crates/mcp", default-features = false }
-surfpool-studio-ui = { path = "crates/studio", default-features = false }
-surfpool-subgraph = { path = "crates/subgraph", default-features = false }
-surfpool-types = { path = "crates/types", default-features = false }
+surfpool-core = { path = "crates/core", default-features = false, version = "1.1.1"}
+surfpool-db = { path = "crates/db", version = "1.1.1" }
+surfpool-mcp = { path = "crates/mcp", default-features = false, version = "1.1.1" }
+surfpool-studio-ui = { path = "crates/studio", default-features = false, version = "0.1.1" }
+surfpool-types = { path = "crates/types", default-features = false, version = "1.1.1" }
 
-txtx-addon-kit = "0.4.13"
-txtx-addon-network-svm = { version = "0.3.20" }
-txtx-addon-network-svm-types = { version = "0.3.18" }
-txtx-cloud = { version = "0.1.14", features = [
-    "clap",
-    "toml",
-], default-features = false }
-txtx-core = { version = "0.4.15" }
-txtx-gql = { version = "0.3.9" }
-txtx-supervisor-ui = { version = "0.2.10", default-features = false }
+txtx-addon-kit = "0.4.14"
+txtx-addon-network-svm = { version = "0.3.21" }
+txtx-addon-network-svm-types = { version = "0.3.19" }
+txtx-core = { version = "0.4.16" }
+txtx-gql = { version = "0.3.10" }
+txtx-supervisor-ui = { version = "0.2.11", default-features = false }
 
 # [patch.crates-io]
-## Local
+# Local
 # txtx-addon-kit = { path = "../txtx/crates/txtx-addon-kit" }
 # txtx-core = { path = "../txtx/crates/txtx-core" }
 # txtx-addon-network-svm = { path = "../txtx/addons/svm/core" }
 # txtx-addon-network-svm-types = { path = "../txtx/addons/svm/types" }
-# txtx-gql = { path = "../txtx/crates/txtx-gql" }
 # txtx-supervisor-ui = { path = "../txtx/crates/txtx-supervisor-ui" }
-# txtx-cloud = { path = "../txtx/crates/txtx-cloud" }
 
 ## Git
 # txtx-addon-kit = { git = "https://github.com/txtx/txtx.git", branch = "main" }

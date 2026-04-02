@@ -20,30 +20,10 @@ use crate::{
     types::Framework,
 };
 
-/// Determines if subgraphs should be generated based on the anchor version.
-/// Subgraphs are only supported for Anchor >= 0.26.0
-fn should_generate_subgraphs(anchor_version: &Option<String>) -> bool {
-    if let Some(version) = anchor_version {
-        let version_parts: Vec<&str> = version.split('.').collect();
-        if version_parts.len() >= 2 {
-            if let (Ok(major), Ok(minor)) = (
-                version_parts[0].parse::<u32>(),
-                version_parts[1].parse::<u32>(),
-            ) {
-                // Disable subgraph generation for versions < 0.26.0
-                if major == 0 && minor < 26 {
-                    return false;
-                }
-            }
-        }
-    }
-    // If no version specified or parsing fails, assume subgraphs should be generated
-    true
-}
-
 pub fn try_get_programs_from_project(
     base_location: FileLocation,
     test_suite_paths: &[String],
+    artifacts_path: Option<&str>,
 ) -> Result<Option<ProgramFrameworkData>, String> {
     let mut manifest_location = base_location.clone();
     manifest_location.append_path("Anchor.toml")?;
@@ -52,24 +32,26 @@ pub fn try_get_programs_from_project(
 
         // Load anchor_manifest_path toml
         let manifest = manifest_location.read_content_as_utf8()?;
-        let manifest = AnchorManifest::from_manifest_str(&manifest, &base_location)
+        let manifest = AnchorManifest::from_manifest_str(&manifest)
             .map_err(|e| format!("unable to read Anchor.toml: {}", e))?;
 
         let mut target_location = base_location.clone();
         target_location.append_path("target")?;
         if let Some((_, deployments)) = manifest.programs.iter().next() {
-            for (program_name, deployment) in deployments.iter() {
+            for (program_name, _) in deployments.iter() {
                 let so_exists = {
-                    let mut so_path = target_location.clone();
-                    so_path.append_path("deploy")?;
-                    so_path.append_path(&format!("{}.so", program_name))?;
-                    so_path.exists()
+                    if let Some(artifacts) = artifacts_path {
+                        let mut so_path = base_location.clone();
+                        so_path.append_path(&format!("{}/{}.so", artifacts, program_name))?;
+                        so_path.exists()
+                    } else {
+                        let mut so_path = target_location.clone();
+                        so_path.append_path("deploy")?;
+                        so_path.append_path(&format!("{}.so", program_name))?;
+                        so_path.exists()
+                    }
                 };
-                programs.push(ProgramMetadata::new(
-                    program_name,
-                    &deployment.idl,
-                    so_exists,
-                ));
+                programs.push(ProgramMetadata::new(program_name, so_exists));
             }
         }
         let mut genesis_entries = manifest
@@ -177,7 +159,6 @@ pub fn try_get_programs_from_project(
             } else {
                 Some(clones)
             },
-            should_generate_subgraphs(&manifest.toolchain.anchor_version),
         )))
     } else {
         Ok(None)
@@ -209,7 +190,7 @@ pub struct AnchorManifestFile {
 }
 
 impl AnchorManifest {
-    pub fn from_manifest_str(manifest_str: &str, base_location: &FileLocation) -> Result<Self> {
+    pub fn from_manifest_str(manifest_str: &str) -> Result<Self> {
         let cfg: AnchorManifestFile = toml::from_str(manifest_str)
             .map_err(|e| anyhow!("Unable to deserialize config: {e}"))?;
         Ok(AnchorManifest {
@@ -219,7 +200,7 @@ impl AnchorManifest {
             scripts: cfg.scripts.unwrap_or_default(),
             programs: cfg
                 .programs
-                .map_or(Ok(BTreeMap::new()), |p| deser_programs(p, base_location))?,
+                .map_or(Ok(BTreeMap::new()), |p| deser_programs(p))?,
             workspace: cfg.workspace.unwrap_or_default(),
             test: cfg.test,
         })
@@ -448,49 +429,21 @@ impl TestConfig {
 pub struct AnchorProgramDeployment {
     pub address: String,
     pub path: Option<String>,
-    pub idl: Option<String>,
 }
 
 impl AnchorProgramDeployment {
-    pub fn new(
-        program_name: &str,
-        value: &serde_json::Value,
-        base_location: &FileLocation,
-    ) -> Result<Self> {
-        let mut idl_location = base_location.clone();
-        let _ = idl_location.append_path(&format!("target/idl/{program_name}.json"));
-        let idl = if idl_location.exists() {
-            Some(
-                idl_location
-                    .read_content_as_utf8()
-                    .map_err(|e| anyhow!("failed to read program idl: {e}"))?,
-            )
-        } else {
-            None
-        };
+    pub fn new(value: &serde_json::Value) -> Result<Self> {
         match &value {
             serde_json::Value::String(address) => Ok(AnchorProgramDeployment {
                 address: address.clone(),
                 path: None,
-                idl,
             }),
 
             serde_json::Value::Object(_) => {
                 let dep: AnchorProgramDeployment = serde_json::from_value(value.clone())
                     .map_err(|_| anyhow!("Unable to read Anchor.toml"))?;
-                let idl = if let Some(ref dep_idl) = dep.idl {
-                    let mut idl_path = base_location.clone();
-                    idl_path.append_path(dep_idl).map_err(|e| {
-                        anyhow!("failed to construct path to program idl file for reading: {e}")
-                    })?;
-                    let idl_content = idl_path.read_content_as_utf8().ok();
-                    idl_content
-                } else {
-                    idl
-                };
                 Ok(AnchorProgramDeployment {
                     address: dep.address,
-                    idl,
                     path: dep.path,
                 })
             }
@@ -660,7 +613,6 @@ impl ValidatorConfig {
 
 fn deser_programs(
     programs: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
-    base_location: &FileLocation,
 ) -> Result<BTreeMap<Cluster, BTreeMap<String, AnchorProgramDeployment>>> {
     programs
         .iter()
@@ -671,7 +623,7 @@ fn deser_programs(
                 .map(|(name, value)| {
                     Ok((
                         name.to_case(Case::Snake),
-                        AnchorProgramDeployment::new(name, value, base_location)?,
+                        AnchorProgramDeployment::new(value)?,
                     ))
                 })
                 .collect::<Result<BTreeMap<String, AnchorProgramDeployment>>>()?;

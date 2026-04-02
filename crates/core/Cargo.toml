@@ -46,6 +46,7 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }                                  # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 serde_yaml = "0.9"
 solana-account = { workspace = true }
 solana-account-decoder = { workspace = true }
@@ -93,7 +94,6 @@ tokio = { workspace = true }
 uuid = { workspace = true }
 
 surfpool-db = { workspace = true }
-surfpool-subgraph = { workspace = true, optional = true }
 surfpool-types = { workspace = true }
 
 anchor-lang-idl = { workspace = true }
@@ -103,16 +103,17 @@ txtx-addon-network-svm = { workspace = true }
 
 
 [dev-dependencies]
+ed25519-dalek = "1.0.1"
 test-case = { workspace = true }
-env_logger = "*"
+env_logger = "0.11"
+solana-ed25519-program = { workspace = true }
 tempfile = { workspace = true }
 spl-token-metadata-interface = { workspace = true }
 
 [features]
-default = ["sqlite", "register-tracing"]
+default = ["sqlite"]
 sqlite = ["surfpool-db/sqlite"]
 postgres = ["surfpool-db/postgres"]
 ignore_tests_ci = []
 geyser_plugin = []  # Disabled: solana-geyser-plugin-manager conflicts with litesvm 0.9.1
-subgraph = ["surfpool-subgraph"]
 register-tracing = ["litesvm/register-tracing"]

@@ -5,7 +5,7 @@ use std::{
     time::SystemTime,
 };
 
-use agave_feature_set::{FeatureSet, enable_extend_program_checked};
+use agave_feature_set::FeatureSet;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use chrono::Utc;
 use convert_case::Casing;
@@ -28,7 +28,6 @@ use solana_clock::{Clock, Slot};
 use solana_commitment_config::{CommitmentConfig, CommitmentLevel};
 use solana_epoch_info::EpochInfo;
 use solana_epoch_schedule::EpochSchedule;
-use solana_feature_gate_interface::Feature;
 use solana_genesis_config::GenesisConfig;
 use solana_hash::Hash;
 use solana_inflation::Inflation;
@@ -64,7 +63,7 @@ use txtx_addon_kit::{
     types::types::{AddonJsonConverter, Value},
 };
 use txtx_addon_network_svm::codec::idl::borsh_encode_value_to_idl_type;
-use txtx_addon_network_svm_types::subgraph::idl::{
+use txtx_addon_network_svm_types::idl::{
     parse_bytes_to_value_with_expected_idl_type_def_ty,
     parse_bytes_to_value_with_expected_idl_type_def_ty_with_leftover_bytes,
 };
@@ -85,7 +84,7 @@ use crate::{
         LogsSubscriptionData, locker::is_supported_token_program, surfnet_lite_svm::SurfnetLiteSvm,
     },
     types::{
-        GeyserAccountUpdate, MintAccount, SerializableAccountAdditionalData,
+        GeyserAccountUpdate, MintAccount, OfflineAccountConfig, SerializableAccountAdditionalData,
         SurfnetTransactionStatus, SyntheticBlockhash, TokenAccount, TransactionWithStatusMeta,
     },
 };
@@ -278,9 +277,11 @@ pub struct SurfnetSvm {
     pub streamed_accounts: Box<dyn Storage<String, bool>>,
     pub recent_blockhashes: VecDeque<(SyntheticBlockhash, i64)>,
     pub scheduled_overrides: Box<dyn Storage<u64, Vec<OverrideInstance>>>,
-    /// Tracks accounts that have been explicitly closed by the user.
-    /// These accounts will not be fetched from mainnet even if they don't exist in the local cache.
-    pub closed_accounts: HashSet<Pubkey>,
+    /// Tracks accounts that should not be downloaded from the remote RPC.
+    /// This includes accounts explicitly closed locally and accounts marked offline via cheatcodes.
+    /// The key is the account pubkey as a string. If `include_owned_accounts` is true,
+    /// accounts owned by this pubkey are also marked offline and excluded from remote download.
+    pub offline_accounts: Box<dyn Storage<String, OfflineAccountConfig>>,
     /// The slot at which this surfnet instance started (may be non-zero when connected to remote).
     /// Used as the lower bound for block reconstruction.
     pub genesis_slot: Slot,
@@ -293,10 +294,6 @@ pub struct SurfnetSvm {
     /// Tracks the slot at which we last persisted the checkpoint.
     pub last_checkpoint_slot: u64,
 }
-
-pub const FEATURE: Feature = Feature {
-    activated_at: Some(0),
-};
 
 impl SurfnetSvm {
     pub fn default() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
@@ -402,7 +399,7 @@ impl SurfnetSvm {
             runbook_executions: self.runbook_executions.clone(),
             account_update_slots: self.account_update_slots.clone(),
             recent_blockhashes: self.recent_blockhashes.clone(),
-            closed_accounts: self.closed_accounts.clone(),
+            offline_accounts: OverlayStorage::wrap(self.offline_accounts.clone_box()),
             genesis_slot: self.genesis_slot,
             genesis_updated_at: self.genesis_updated_at,
             slot_checkpoint: OverlayStorage::wrap(self.slot_checkpoint.clone_box()),
@@ -420,14 +417,7 @@ impl SurfnetSvm {
         let (simnet_events_tx, simnet_events_rx) = crossbeam_channel::bounded(1024);
         let (geyser_events_tx, geyser_events_rx) = crossbeam_channel::bounded(1024);
 
-        let mut feature_set = FeatureSet::all_enabled();
-
-        // todo: remove once txtx deployments upgrade solana dependencies.
-        // todo: consider making this configurable via config
-        feature_set.deactivate(&enable_extend_program_checked::id());
-
-        let inner =
-            SurfnetLiteSvm::new().initialize(feature_set.clone(), database_url, surfnet_id)?;
+        let inner = SurfnetLiteSvm::new().initialize(database_url, surfnet_id)?;
 
         let native_mint_account = inner
             .get_account(&spl_token_interface::native_mint::ID)?
@@ -491,6 +481,8 @@ impl SurfnetSvm {
             new_kv_store(&database_url, "streamed_accounts", surfnet_id)?;
         let scheduled_overrides_db: Box<dyn Storage<u64, Vec<OverrideInstance>>> =
             new_kv_store(&database_url, "scheduled_overrides", surfnet_id)?;
+        let offline_accounts_db: Box<dyn Storage<String, OfflineAccountConfig>> =
+            new_kv_store(&database_url, "offline_accounts", surfnet_id)?;
         let registered_idls_db: Box<dyn Storage<String, Vec<VersionedIdl>>> =
             new_kv_store(&database_url, "registered_idls", surfnet_id)?;
         let profile_tag_map_db: Box<dyn Storage<String, Vec<UuidOrSignature>>> =
@@ -594,7 +586,7 @@ impl SurfnetSvm {
             inflation: Inflation::default(),
             write_version: 0,
             registered_idls: registered_idls_db,
-            feature_set,
+            feature_set: FeatureSet::default(),
             instruction_profiling_enabled: true,
             max_profiles: DEFAULT_PROFILING_MAP_CAPACITY,
             runbook_executions: Vec::new(),
@@ -602,7 +594,7 @@ impl SurfnetSvm {
             streamed_accounts: streamed_accounts_db,
             recent_blockhashes: VecDeque::new(),
             scheduled_overrides: scheduled_overrides_db,
-            closed_accounts: HashSet::new(),
+            offline_accounts: offline_accounts_db,
             genesis_slot: 0, // Will be updated when connecting to remote network
             genesis_updated_at: Utc::now().timestamp_millis() as u64,
             slot_checkpoint: slot_checkpoint_db,
@@ -623,16 +615,19 @@ impl SurfnetSvm {
     /// # Arguments
     /// * `config` - The feature configuration specifying which features to enable/disable.
     pub fn apply_feature_config(&mut self, config: &SvmFeatureConfig) {
+        let mut starting_set = FeatureSet::all_enabled();
         // Apply explicit enables
         for pubkey in &config.enable {
-            self.feature_set.activate(pubkey, 0);
+            debug!("Activating feature {}", pubkey);
+            starting_set.activate(pubkey, 0);
         }
 
         // Apply explicit disables
         for pubkey in &config.disable {
-            self.feature_set.deactivate(pubkey);
+            debug!("Deactivating feature {}", pubkey);
+            starting_set.deactivate(pubkey);
         }
-
+        self.feature_set = starting_set;
         // Rebuild inner VM with updated feature set
         self.inner.apply_feature_config(self.feature_set.clone());
     }
@@ -718,6 +713,7 @@ impl SurfnetSvm {
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> SurfpoolResult<TransactionResult> {
         // Capture pre-airdrop balances for the airdrop account, recipient, and system program.
         let airdrop_pubkey = self.inner.airdrop_pubkey();
+        println!("Airdrop pubkey: {}", airdrop_pubkey);
 
         let airdrop_account_before = self
             .get_account(&airdrop_pubkey)?
@@ -905,25 +901,6 @@ impl SurfnetSvm {
             block_height,
             signatures: vec![],
         }
-    }
-
-    pub fn get_account_from_feature_set(&self, pubkey: &Pubkey) -> Option<Account> {
-        // Currently, liteSVM doesn't create feature gate accounts and store them in the vm,
-        // so when a user is fetching one, we make one on the fly.
-        // TODO: remove once https://github.com/LiteSVM/litesvm/pull/308 is released
-        self.feature_set.active().get(pubkey).map(|_| {
-            let feature_bytes = bincode::serialize(&FEATURE).unwrap();
-            let lamports = self
-                .inner
-                .minimum_balance_for_rent_exemption(feature_bytes.len());
-            Account {
-                lamports,
-                data: feature_bytes,
-                owner: solana_sdk_ids::feature::id(),
-                executable: false,
-                rent_epoch: 0,
-            }
-        })
     }
 
     /// Reconstructs RecentBlockhashes, SlotHashes, and Clock sysvars deterministically
@@ -1212,7 +1189,12 @@ impl SurfnetSvm {
         }
 
         if is_deleted_account {
-            self.closed_accounts.insert(*pubkey);
+            self.offline_accounts.store(
+                pubkey.to_string(),
+                OfflineAccountConfig {
+                    include_owned_accounts: false,
+                },
+            )?;
             if let Some(old_account) = self.get_account(pubkey)? {
                 self.remove_from_indexes(pubkey, &old_account)?;
             }
@@ -1779,7 +1761,7 @@ impl SurfnetSvm {
             };
             let mut data = bincode::serialize(&programdata_state).unwrap();
 
-            data.extend_from_slice(&include_bytes!("../tests/assets/minimum_program.so").to_vec());
+            data.extend_from_slice(crate::surfnet::noop_program::NOOP_PROGRAM_ELF);
             let lamports = self.inner.minimum_balance_for_rent_exemption(data.len());
             Some((
                 programdata_address,
@@ -3830,7 +3812,7 @@ mod tests {
             )
             .unwrap();
 
-            let mut bin = include_bytes!("../tests/assets/minimum_program.so").to_vec();
+            let mut bin = crate::surfnet::noop_program::NOOP_PROGRAM_ELF.to_vec();
             data.append(&mut bin); // push our binary after the state data
             let lamports = svm.inner.minimum_balance_for_rent_exemption(data.len());
             let default_program_data_account = Account {
@@ -4239,14 +4221,17 @@ mod tests {
     fn test_apply_feature_config_disable_feature(test_type: TestType) {
         let (mut svm, _events_rx, _geyser_rx) = test_type.initialize_svm();
 
-        // Feature should be active by default (all_enabled)
+        // Feature should be inactive by default (all_disabled)
         let feature_id = disable_fees_sysvar::id();
+        assert!(!svm.feature_set.is_active(&feature_id));
+
+        // Now applying feature config defaults to all enabled
+        svm.apply_feature_config(&SvmFeatureConfig::new());
         assert!(svm.feature_set.is_active(&feature_id));
 
-        // Now disable it via config
+        // But we can explicitly disable via config
         let config = SvmFeatureConfig::new().disable(disable_fees_sysvar::id());
         svm.apply_feature_config(&config);
-
         assert!(!svm.feature_set.is_active(&feature_id));
     }
 
@@ -4414,14 +4399,22 @@ mod tests {
         svm.set_account(&account_pubkey, account.clone()).unwrap();
 
         assert!(svm.get_account(&account_pubkey).unwrap().is_some());
-        assert!(!svm.closed_accounts.contains(&account_pubkey));
+        assert!(
+            !svm.offline_accounts
+                .contains_key(&account_pubkey.to_string())
+                .unwrap()
+        );
         assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 1);
 
         let empty_account = Account::default();
         svm.update_account_registries(&account_pubkey, &empty_account)
             .unwrap();
 
-        assert!(svm.closed_accounts.contains(&account_pubkey));
+        assert!(
+            svm.offline_accounts
+                .contains_key(&account_pubkey.to_string())
+                .unwrap()
+        );
 
         assert_eq!(svm.get_account_owned_by(&owner).unwrap().len(), 0);
 
@@ -4469,13 +4462,21 @@ mod tests {
             1
         );
         assert_eq!(svm.get_token_accounts_by_delegate(&delegate).len(), 1);
-        assert!(!svm.closed_accounts.contains(&token_account_pubkey));
+        assert!(
+            !svm.offline_accounts
+                .contains_key(&token_account_pubkey.to_string())
+                .unwrap()
+        );
 
         let empty_account = Account::default();
         svm.update_account_registries(&token_account_pubkey, &empty_account)
             .unwrap();
 
-        assert!(svm.closed_accounts.contains(&token_account_pubkey));
+        assert!(
+            svm.offline_accounts
+                .contains_key(&token_account_pubkey.to_string())
+                .unwrap()
+        );
 
         assert_eq!(
             svm.get_token_accounts_by_owner(&token_owner).unwrap().len(),

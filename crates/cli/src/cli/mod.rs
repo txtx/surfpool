@@ -27,11 +27,10 @@ use surfpool_types::{
     DEFAULT_TPU_QUIC_PORT, DEFAULT_WS_PORT, RpcConfig, SimnetConfig, SimnetEvent, StudioConfig,
     SubgraphConfig, SurfpoolConfig, SvmFeatureConfig, parse_feature_pubkey,
 };
-use txtx_cloud::LoginCommand;
 use txtx_core::manifest::WorkspaceManifest;
 use txtx_gql::kit::{helpers::fs::FileLocation, types::frontend::LogLevel};
 
-use crate::{cloud::CloudStartCommand, runbook::handle_execute_runbook_command};
+use crate::runbook::handle_execute_runbook_command;
 
 mod simnet;
 
@@ -42,10 +41,6 @@ pub struct Context {
     pub tracer: bool,
 }
 
-pub const DEFAULT_ID_SVC_URL: &str = "https://id.txtx.run/v1";
-pub const DEFAULT_CLOUD_URL: &str = "https://cloud.txtx.run";
-pub const DEFAULT_SVM_GQL_URL: &str = "https://svm-cloud.gql.txtx.run/v1/graphql";
-pub const DEFAULT_SVM_CLOUD_API_URL: &str = "https://svm-cloud-api.txtx.run/v1/surfnets";
 pub const DEFAULT_RUNBOOK: &str = "deployment";
 pub const DEFAULT_AIRDROP_AMOUNT: &str = "10000000000000";
 
@@ -129,9 +124,6 @@ enum Command {
     /// List runbooks present in the current directory
     #[clap(name = "ls", bin_name = "ls")]
     List(ListRunbooks),
-    /// Txtx cloud commands
-    #[clap(subcommand, name = "cloud", bin_name = "cloud")]
-    Cloud(CloudCommand),
     /// Start MCP server
     #[clap(name = "mcp", bin_name = "mcp")]
     Mcp,
@@ -189,13 +181,16 @@ pub struct StartSimnet {
     /// List of keypair paths to airdrop (eg. surfpool start --airdrop-keypair-path ~/.config/solana/id.json --airdrop-keypair-path ~/.config/solana/id2.json)
     #[arg(long = "airdrop-keypair-path", short = 'k', default_value = DEFAULT_SOLANA_KEYPAIR_PATH.as_str())]
     pub airdrop_keypair_path: Vec<String>,
-    /// Watch programs in your `target/deploy` folder, and automatically re-execute the deployment runbook when the `.so` files change. (eg. surfpool start --watch)
+    /// Watch programs in your artifacts folder (default: `target/deploy`), and automatically re-execute the deployment runbook when the `.so` files change. (eg. surfpool start --watch)
     #[clap(long = "watch", action=ArgAction::SetTrue, default_value = "false")]
     pub watch: bool,
+    /// Override the path where .so program artifacts are loaded from (default: target/deploy). (eg. surfpool start --artifacts-path ./target/deploy/debug)
+    #[arg(long = "artifacts-path")]
+    pub artifacts_path: Option<String>,
     /// List of geyser plugins to load (eg. surfpool start --geyser-plugin-config plugin1.json --geyser-plugin-config plugin2.json)
     #[arg(long = "geyser-plugin-config", short = 'g')]
     pub plugin_config_path: Vec<String>,
-    /// Subgraph database connection URL (default to sqlite ":memory:", also supports postgres: "postgres://postgres:posgres@e127.0.0.1:5432/surfpool")
+    /// This flag has been deprecated.
     #[arg(long = "subgraph-db", short = 'd', default_value = ":memory:")]
     pub subgraph_db: Option<String>,
     /// Disable Studio (eg. surfpool start --no-studio)
@@ -414,7 +409,6 @@ impl StartSimnet {
             } else {
                 Some(self.log_bytes_limit)
             },
-            feature_config: self.feature_config(),
             skip_signature_verification: self.skip_signature_verification,
             surfnet_id: self.surfnet_id.clone(),
             snapshot,
@@ -470,16 +464,6 @@ pub struct ListRunbooks {
     /// Path to the manifest
     #[arg(long = "manifest-file-path", short = 'm', default_value = "./txtx.yml")]
     pub manifest_path: String,
-}
-
-#[derive(Subcommand, PartialEq, Clone, Debug)]
-pub enum CloudCommand {
-    /// Login to the Txtx Cloud
-    #[clap(name = "login", bin_name = "login")]
-    Login(LoginCommand),
-    /// Start a new Cloud Surfnet instance
-    #[clap(name = "start", bin_name = "start")]
-    Start(CloudStartCommand),
 }
 
 #[derive(Parser, PartialEq, Clone, Debug)]
@@ -650,7 +634,6 @@ fn handle_command(opts: Opts, ctx: &Context) -> Result<(), String> {
             hiro_system_kit::nestable_block_on(handle_execute_runbook_command(cmd))
         }
         Command::List(cmd) => hiro_system_kit::nestable_block_on(handle_list_command(cmd, ctx)),
-        Command::Cloud(cmd) => hiro_system_kit::nestable_block_on(handle_cloud_commands(cmd)),
         Command::Mcp => hiro_system_kit::nestable_block_on(handle_mcp_command(ctx)),
     }
 }
@@ -708,30 +691,6 @@ async fn handle_list_command(cmd: ListRunbooks, _ctx: &Context) -> Result<(), St
         );
     }
     Ok(())
-}
-
-async fn handle_cloud_commands(cmd: CloudCommand) -> Result<(), String> {
-    match cmd {
-        CloudCommand::Login(cmd) => {
-            txtx_cloud::login::handle_login_command(
-                &cmd,
-                DEFAULT_CLOUD_URL,
-                &CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED.to_string(),
-                DEFAULT_ID_SVC_URL,
-            )
-            .await
-        }
-        CloudCommand::Start(cmd) => {
-            cmd.start(
-                DEFAULT_CLOUD_URL,
-                &CHANGE_TO_DEFAULT_STUDIO_PORT_ONCE_SUPERVISOR_MERGED.to_string(),
-                DEFAULT_ID_SVC_URL,
-                DEFAULT_SVM_GQL_URL,
-                DEFAULT_SVM_CLOUD_API_URL,
-            )
-            .await
-        }
-    }
 }
 
 pub fn setup_logger(

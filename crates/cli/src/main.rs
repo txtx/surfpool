@@ -1,6 +1,5 @@
 #[macro_use]
 mod macros;
-mod cloud;
 
 extern crate hiro_system_kit;
 

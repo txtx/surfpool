@@ -26,8 +26,7 @@ pub use litesvm;
 use solana_pubkey::Pubkey;
 pub use solana_rpc_client;
 use surfnet::{GeyserEvent, locker::SurfnetSvmLocker, svm::SurfnetSvm};
-use surfpool_types::{SimnetCommand, SubgraphCommand, SurfpoolConfig};
-use txtx_addon_network_svm_types::subgraph::PluginConfig;
+use surfpool_types::{SimnetCommand, SurfpoolConfig};
 use uuid::Uuid;
 
 pub const SURFPOOL_IDENTITY_PUBKEY: Pubkey =
@@ -36,7 +35,6 @@ pub const SURFPOOL_IDENTITY_PUBKEY: Pubkey =
 pub async fn start_local_surfnet(
     surfnet_svm: SurfnetSvm,
     config: SurfpoolConfig,
-    subgraph_commands_tx: Sender<SubgraphCommand>,
     simnet_commands_tx: Sender<SimnetCommand>,
     simnet_commands_rx: Receiver<SimnetCommand>,
     geyser_events_rx: Receiver<GeyserEvent>,
@@ -45,7 +43,6 @@ pub async fn start_local_surfnet(
     runloops::start_local_surfnet_runloop(
         svm_locker,
         config,
-        subgraph_commands_tx,
         simnet_commands_tx,
         simnet_commands_rx,
         geyser_events_rx,
@@ -58,14 +55,6 @@ pub async fn start_local_surfnet(
 pub struct PluginInfo {
     pub plugin_name: String,
     pub uuid: String,
-}
-
-#[derive(Debug)]
-pub enum PluginManagerCommand {
-    LoadConfig(Uuid, PluginConfig, Sender<String>),
-    UnloadPlugin(Uuid, Sender<Result<(), String>>),
-    ReloadPlugin(Uuid, PluginConfig, Sender<String>),
-    ListPlugins(Sender<Vec<PluginInfo>>),
 }
 
 #[cfg(test)]

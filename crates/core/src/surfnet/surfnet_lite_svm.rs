@@ -22,6 +22,8 @@ use crate::{
     surfnet::{GetAccountResult, locker::is_supported_token_program},
 };
 
+pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
+
 #[derive(Clone)]
 pub struct SurfnetLiteSvm {
     pub svm: LiteSVM,
@@ -31,7 +33,7 @@ pub struct SurfnetLiteSvm {
 impl SurfnetLiteSvm {
     pub fn new() -> Self {
         Self {
-            svm: LiteSVM::new(),
+            svm: LiteSVM::default(),
             db: None,
         }
     }
@@ -49,16 +51,38 @@ impl SurfnetLiteSvm {
         }
     }
 
+    /// Initializes LiteSVM with as few settings as possible; for initial startup of VM
+    /// that will be overriden later when more context is available.
+    fn base_litesvm_settings() -> LiteSVM {
+        LiteSVM::default()
+            .with_feature_set(FeatureSet::default()) // start with all features enabled, but don't load feature accounts
+            .with_builtins()
+            .with_lamports(1_000_000u64.wrapping_mul(LAMPORTS_PER_SOL))
+            .with_sysvars()
+            .with_default_programs()
+            .with_precompiles()
+            .with_blockhash_check(false)
+            .with_sigverify(false)
+    }
+
+    /// Initializes LiteSVM with full settings; starts with base settings, then adds in
+    /// features and other setup that depends on the feature set.
+    fn full_litesvm_settings(feature_set: FeatureSet) -> LiteSVM {
+        Self::base_litesvm_settings()
+            .with_feature_set(feature_set)
+            .with_feature_accounts()
+            .with_builtins()
+            .with_sysvars()
+            .with_default_programs()
+    }
+
     pub fn initialize(
         mut self,
-        feature_set: FeatureSet,
+        // feature_set: FeatureSet,
         database_url: Option<&str>,
         surfnet_id: &str,
     ) -> SurfpoolResult<Self> {
-        self.svm = LiteSVM::new()
-            .with_blockhash_check(false)
-            .with_sigverify(false)
-            .with_feature_set(feature_set);
+        self.svm = Self::base_litesvm_settings();
 
         create_native_mint(&mut self);
 
@@ -79,10 +103,7 @@ impl SurfnetLiteSvm {
     }
 
     pub fn reset(&mut self, feature_set: FeatureSet) -> SurfpoolResult<()> {
-        self.svm = LiteSVM::new()
-            .with_blockhash_check(false)
-            .with_sigverify(false)
-            .with_feature_set(feature_set);
+        self.svm = Self::full_litesvm_settings(feature_set);
 
         create_native_mint(self);
 
@@ -111,10 +132,7 @@ impl SurfnetLiteSvm {
         let clock = self.svm.get_sysvar::<Clock>();
 
         // todo: this is also resetting the log bytes limit and airdrop keypair, would be nice to avoid
-        self.svm = LiteSVM::new()
-            .with_blockhash_check(false)
-            .with_sigverify(false)
-            .with_feature_set(feature_set);
+        self.svm = Self::full_litesvm_settings(feature_set);
 
         create_native_mint(self);
 
@@ -125,13 +143,7 @@ impl SurfnetLiteSvm {
     }
 
     pub fn apply_feature_config(&mut self, feature_set: FeatureSet) -> &mut Self {
-        self.svm = LiteSVM::new()
-            .with_blockhash_check(false)
-            .with_sigverify(false)
-            .with_feature_set(feature_set)
-            .with_builtins()
-            .with_sysvars()
-            .with_default_programs();
+        self.svm = Self::full_litesvm_settings(feature_set);
 
         create_native_mint(self);
         self
@@ -330,4 +342,64 @@ fn create_native_mint(svm: &mut SurfnetLiteSvm) {
     };
     svm.set_account(spl_token_interface::native_mint::ID, account)
         .expect("Failed to create native mint account in SVM");
+}
+#[cfg(test)]
+mod tests {
+    use ed25519_dalek::Signer as DalekSigner;
+    use solana_compute_budget_interface::ComputeBudgetInstruction;
+    use solana_ed25519_program::new_ed25519_instruction_with_signature;
+    use solana_keypair::Keypair;
+    use solana_message::{Message, VersionedMessage};
+    use solana_signer::Signer;
+    use solana_transaction::versioned::VersionedTransaction;
+
+    use super::*;
+
+    fn build_ed25519_transaction(
+        payer: &Keypair,
+        blockhash: solana_hash::Hash,
+    ) -> VersionedTransaction {
+        let payer_dalek = ed25519_dalek::Keypair::from_bytes(&payer.to_bytes())
+            .expect("failed to create dalek keypair");
+        let message = b"surfpool ed25519 precompile regression";
+        let signature = payer_dalek.sign(message);
+        let ed25519_ix = new_ed25519_instruction_with_signature(
+            message,
+            &signature.to_bytes(),
+            payer.pubkey().as_array(),
+        );
+        let compute_budget_ixs = [
+            ComputeBudgetInstruction::set_compute_unit_limit(100_000),
+            ComputeBudgetInstruction::set_compute_unit_price(1),
+        ];
+
+        let tx_message = Message::new_with_blockhash(
+            &[
+                compute_budget_ixs[0].clone(),
+                compute_budget_ixs[1].clone(),
+                ed25519_ix,
+            ],
+            Some(&payer.pubkey()),
+            &blockhash,
+        );
+
+        VersionedTransaction::try_new(VersionedMessage::Legacy(tx_message), &[&payer])
+            .expect("failed to create ed25519 transaction")
+    }
+
+    #[test]
+    fn test_base_litesvm_settings_registers_ed25519_precompile() {
+        let mut svm = SurfnetLiteSvm::base_litesvm_settings();
+        let payer = Keypair::new();
+        svm.airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
+            .expect("failed to fund test payer");
+        let tx = build_ed25519_transaction(&payer, svm.latest_blockhash());
+
+        let result = svm.send_transaction(tx);
+
+        assert!(
+            result.is_ok(),
+            "ed25519 precompile should be available in base_litesvm_settings"
+        );
+    }
 }
