@@ -347,6 +347,7 @@ pub async fn start_block_production_runloop(
     let mut next_scheduled_expiry_check: Option<u64> =
         expiry_duration_ms.map(|expiry_val| Utc::now().timestamp_millis() as u64 + expiry_val);
     let global_skip_sig_verify = simnet_config.skip_signature_verification;
+    let ix_profiling_initially_enabled = simnet_config.instruction_profiling_enabled;
     loop {
         let mut do_produce_block = false;
 
@@ -499,8 +500,9 @@ pub async fn start_block_production_runloop(
                     SimnetCommand::StartRunbookExecution(runbook_id) => {
                         svm_locker.start_runbook_execution(runbook_id);
                     }
+
                     SimnetCommand::CompleteRunbookExecution(runbook_id, error) => {
-                        svm_locker.complete_runbook_execution(runbook_id, error);
+                        svm_locker.complete_runbook_execution(runbook_id, error, ix_profiling_initially_enabled);
                     }
                     SimnetCommand::FetchRemoteAccounts(pubkeys, remote_url) => {
                         let remote_client = SurfnetRemoteClient::new_unsafe(&remote_url);

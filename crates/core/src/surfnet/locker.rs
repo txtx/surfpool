@@ -3465,14 +3465,19 @@ impl SurfnetSvmLocker {
         });
     }
 
-    pub fn complete_runbook_execution(&self, runbook_id: String, error: Option<Vec<String>>) {
+    pub fn complete_runbook_execution(
+        &self,
+        runbook_id: String,
+        error: Option<Vec<String>>,
+        re_enable_ix_profiling: bool,
+    ) {
         self.with_svm_writer(|svm_writer| {
             svm_writer.complete_runbook_execution(&runbook_id, error);
             let some_runbook_executing = svm_writer
                 .runbook_executions
                 .iter()
                 .any(|e| e.completed_at.is_none());
-            if !some_runbook_executing {
+            if !some_runbook_executing && re_enable_ix_profiling {
                 svm_writer.instruction_profiling_enabled = true;
             }
         });
