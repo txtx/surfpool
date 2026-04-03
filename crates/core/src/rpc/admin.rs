@@ -195,7 +195,7 @@ impl AdminRpc for SurfpoolAdminRpc {
     type Metadata = Option<RunloopContext>;
 
     fn exit(&self, meta: Self::Metadata) -> Result<()> {
-        let Some(_ctx) = meta else {
+        if meta.is_none() {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             }
