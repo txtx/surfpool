@@ -1,9 +1,12 @@
 use solana_client::rpc_request::RpcRequest;
+use solana_epoch_info::EpochInfo;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 
 use crate::error::{SurfnetError, SurfnetResult};
+pub mod builders;
+use builders::CheatcodeBuilder;
 
 /// Direct state manipulation helpers for a running Surfnet.
 ///
@@ -60,7 +63,7 @@ impl<'a> Cheatcodes<'a> {
             address.to_string(),
             {
                 "lamports": lamports,
-                "data": data,
+                "data": hex::encode(data),
                 "owner": owner.to_string()
             }
         ]);
@@ -126,6 +129,37 @@ impl<'a> Cheatcodes<'a> {
         Ok(())
     }
 
+    /// Move Surfnet time forward to an absolute epoch.
+    pub fn time_travel_to_epoch(&self, epoch: u64) -> SurfnetResult<EpochInfo> {
+        self.time_travel(serde_json::json!([{ "absoluteEpoch": epoch }]))
+    }
+
+    /// Move Surfnet time forward to an absolute slot.
+    pub fn time_travel_to_slot(&self, slot: u64) -> SurfnetResult<EpochInfo> {
+        self.time_travel(serde_json::json!([{ "absoluteSlot": slot }]))
+    }
+
+    /// Move Surfnet time forward to an absolute Unix timestamp in milliseconds.
+    pub fn time_travel_to_timestamp(&self, timestamp: u64) -> SurfnetResult<EpochInfo> {
+        self.time_travel(serde_json::json!([{ "absoluteTimestamp": timestamp }]))
+    }
+
+    pub fn execute<B: CheatcodeBuilder>(&self, builder: B) -> SurfnetResult<()> {
+        self.call_cheatcode(B::METHOD, builder.build())
+    }
+
+    fn time_travel(&self, params: serde_json::Value) -> SurfnetResult<EpochInfo> {
+        let client = self.rpc_client();
+        client
+            .send::<EpochInfo>(
+                RpcRequest::Custom {
+                    method: "surfnet_timeTravel",
+                },
+                params,
+            )
+            .map_err(|e| SurfnetError::Cheatcode(format!("surfnet_timeTravel: {e}")))
+    }
+
     fn call_cheatcode(&self, method: &'static str, params: serde_json::Value) -> SurfnetResult<()> {
         let client = self.rpc_client();
         client
@@ -139,3 +173,6 @@ fn spl_token_program_id() -> Pubkey {
     // spl_token::id() = TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
     Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
 }
+
+#[cfg(test)]
+mod tests;
