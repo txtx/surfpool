@@ -39,7 +39,7 @@ mod error;
 pub mod report;
 mod surfnet;
 
-pub use cheatcodes::Cheatcodes;
+pub use cheatcodes::{Cheatcodes, builders};
 pub use error::{SurfnetError, SurfnetResult};
 // Re-export key Solana types for convenience
 pub use solana_keypair::Keypair;

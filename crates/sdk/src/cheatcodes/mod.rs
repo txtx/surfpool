@@ -14,7 +14,8 @@ use builders::CheatcodeBuilder;
 /// perfect for test setup (funding wallets, minting tokens, etc.).
 ///
 /// ```rust,no_run
-/// use surfpool_sdk::{Surfnet, Pubkey};
+/// use surfpool_sdk::{Pubkey, Surfnet};
+/// use surfpool_sdk::cheatcodes::builders::set_account::SetAccount;
 ///
 /// # async fn example() {
 /// let surfnet = Surfnet::start().await.unwrap();
@@ -27,6 +28,18 @@ use builders::CheatcodeBuilder;
 /// // Fund a token account with 1000 USDC
 /// let usdc_mint: Pubkey = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".parse().unwrap();
 /// cheats.fund_token(&alice, &usdc_mint, 1_000_000_000, None).unwrap();
+///
+/// // Or build a typed cheatcode request:
+/// let custom = Pubkey::new_unique();
+/// let owner = Pubkey::new_unique();
+/// cheats
+///     .execute(
+///         SetAccount::new(custom)
+///             .lamports(42)
+///             .owner(owner)
+///             .data(vec![1, 2, 3]),
+///     )
+///     .unwrap();
 /// # }
 /// ```
 pub struct Cheatcodes<'a> {
@@ -42,7 +55,19 @@ impl<'a> Cheatcodes<'a> {
         RpcClient::new(self.rpc_url)
     }
 
-    /// Set the SOL balance (in lamports) for an account.
+    /// Set the SOL balance for an account in lamports.
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::{Pubkey, Surfnet};
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    /// let recipient = Pubkey::new_unique();
+    ///
+    /// cheats.fund_sol(&recipient, 1_000_000_000).unwrap();
+    /// # }
+    /// ```
     pub fn fund_sol(&self, address: &Pubkey, lamports: u64) -> SurfnetResult<()> {
         let params = serde_json::json!([
             address.to_string(),
@@ -51,7 +76,22 @@ impl<'a> Cheatcodes<'a> {
         self.call_cheatcode("surfnet_setAccount", params)
     }
 
-    /// Set arbitrary account data.
+    /// Set arbitrary account state for a single account.
+    ///
+    /// This helper updates lamports, owner, and raw account data in one RPC call.
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::{Pubkey, Surfnet};
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    /// let address = Pubkey::new_unique();
+    /// let owner = Pubkey::new_unique();
+    ///
+    /// cheats.set_account(&address, 500, &[1, 2, 3], &owner).unwrap();
+    /// # }
+    /// ```
     pub fn set_account(
         &self,
         address: &Pubkey,
@@ -73,6 +113,19 @@ impl<'a> Cheatcodes<'a> {
     /// Fund a token account (creates the ATA if needed).
     ///
     /// Uses `spl_token` program by default. Pass `token_program` to use Token-2022.
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::{Pubkey, Surfnet};
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    /// let owner = Pubkey::new_unique();
+    /// let mint = Pubkey::new_unique();
+    ///
+    /// cheats.fund_token(&owner, &mint, 1_000, None).unwrap();
+    /// # }
+    /// ```
     pub fn fund_token(
         &self,
         owner: &Pubkey,
@@ -90,7 +143,9 @@ impl<'a> Cheatcodes<'a> {
         self.call_cheatcode("surfnet_setTokenAccount", params)
     }
 
-    /// Set a token account balance for a specific ATA address.
+    /// Set the token balance for a wallet/mint pair.
+    ///
+    /// This is an alias for [`Self::fund_token`].
     pub fn set_token_balance(
         &self,
         owner: &Pubkey,
@@ -102,12 +157,26 @@ impl<'a> Cheatcodes<'a> {
     }
 
     /// Get the associated token address for a wallet/mint pair.
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::{Pubkey, Surfnet};
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    /// let owner = Pubkey::new_unique();
+    /// let mint = Pubkey::new_unique();
+    ///
+    /// let ata = cheats.get_ata(&owner, &mint, None);
+    /// println!("{ata}");
+    /// # }
+    /// ```
     pub fn get_ata(&self, owner: &Pubkey, mint: &Pubkey, token_program: Option<&Pubkey>) -> Pubkey {
         let program = token_program.copied().unwrap_or(spl_token_program_id());
         get_associated_token_address_with_program_id(owner, mint, &program)
     }
 
-    /// Fund multiple accounts with SOL in one call.
+    /// Fund multiple accounts with SOL using repeated `surfnet_setAccount` calls.
     pub fn fund_sol_many(&self, accounts: &[(&Pubkey, u64)]) -> SurfnetResult<()> {
         for (address, lamports) in accounts {
             self.fund_sol(address, *lamports)?;
@@ -144,10 +213,25 @@ impl<'a> Cheatcodes<'a> {
         self.time_travel(serde_json::json!([{ "absoluteTimestamp": timestamp }]))
     }
 
+    /// Execute a typed cheatcode builder.
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::{Pubkey, Surfnet};
+    /// use surfpool_sdk::cheatcodes::builders::reset_account::ResetAccount;
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    /// let address = Pubkey::new_unique();
+    ///
+    /// cheats.execute(ResetAccount::new(address)).unwrap();
+    /// # }
+    /// ```
     pub fn execute<B: CheatcodeBuilder>(&self, builder: B) -> SurfnetResult<()> {
         self.call_cheatcode(B::METHOD, builder.build())
     }
 
+    /// Internal helper for `surfnet_timeTravel` requests that return [`EpochInfo`].
     fn time_travel(&self, params: serde_json::Value) -> SurfnetResult<EpochInfo> {
         let client = self.rpc_client();
         client
@@ -160,6 +244,7 @@ impl<'a> Cheatcodes<'a> {
             .map_err(|e| SurfnetError::Cheatcode(format!("surfnet_timeTravel: {e}")))
     }
 
+    /// Internal helper for cheatcodes that return `()`.
     fn call_cheatcode(&self, method: &'static str, params: serde_json::Value) -> SurfnetResult<()> {
         let client = self.rpc_client();
         client
