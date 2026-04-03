@@ -1,13 +1,19 @@
 use solana_program_pack::Pack;
+use solana_signer::Signer;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use spl_token_interface::state::{Account as TokenAccount, Mint};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::{
+    fs,
+    sync::{Mutex, MutexGuard, OnceLock},
+};
+use tempfile::tempdir;
 
 use super::{
     Cheatcodes,
     builders::{
+        deploy_program::DeployProgram,
         reset_account::ResetAccount, set_account::SetAccount, set_token_account::SetTokenAccount,
         stream_account::StreamAccount,
     },
@@ -41,7 +47,27 @@ fn rpc_client(cheats: &Cheatcodes<'_>) -> RpcClient {
 
 fn test_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn sample_idl(program_id: &Pubkey) -> serde_json::Value {
+    serde_json::json!({
+        "address": program_id.to_string(),
+        "metadata": {
+            "name": "test_program",
+            "version": "0.1.0",
+            "spec": "0.1.0",
+            "description": "Created with Anchor"
+        },
+        "instructions": [],
+        "accounts": [],
+        "types": [],
+        "events": [],
+        "errors": [],
+        "constants": []
+    })
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -283,6 +309,70 @@ async fn stream_account_builder_executes_against_surfnet() {
                 .and_then(|value| value.as_bool())
                 == Some(true)
     }));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn deploy_program_builder_executes_against_surfnet() {
+    let _guard = test_lock();
+    let surfnet = Surfnet::start().await.unwrap();
+    let cheats = surfnet.cheatcodes();
+    let client = rpc_client(&cheats);
+    let program_id = Pubkey::new_unique();
+    let temp = tempdir().unwrap();
+    let idl_path = temp.path().join("program.json");
+
+    fs::write(
+        &idl_path,
+        serde_json::to_vec(&sample_idl(&program_id)).unwrap(),
+    )
+    .unwrap();
+
+    cheats
+        .deploy(
+            DeployProgram::new(program_id)
+                .so_bytes(vec![1, 2, 3, 4, 5, 6])
+                .idl_path(&idl_path),
+        )
+        .unwrap();
+
+    let account = client.get_account(&program_id).unwrap();
+    assert!(account.executable);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn deploy_program_discovers_workspace_artifacts() {
+    let _guard = test_lock();
+    let surfnet = Surfnet::start().await.unwrap();
+    let cheats = surfnet.cheatcodes();
+    let client = rpc_client(&cheats);
+    let temp = tempdir().unwrap();
+    let previous_dir = std::env::current_dir().unwrap();
+    let deploy_dir = temp.path().join("target/deploy");
+    let idl_dir = temp.path().join("target/idl");
+    let keypair = crate::Keypair::new();
+    let program_name = "fixture_program";
+
+    fs::create_dir_all(&deploy_dir).unwrap();
+    fs::create_dir_all(&idl_dir).unwrap();
+    fs::write(deploy_dir.join(format!("{program_name}.so")), vec![9, 8, 7, 6]).unwrap();
+    fs::write(
+        deploy_dir.join(format!("{program_name}-keypair.json")),
+        serde_json::to_vec(&keypair.to_bytes().to_vec()).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        idl_dir.join(format!("{program_name}.json")),
+        serde_json::to_vec(&sample_idl(&keypair.pubkey())).unwrap(),
+    )
+    .unwrap();
+
+    std::env::set_current_dir(temp.path()).unwrap();
+    let result = cheats.deploy_program(program_name);
+    std::env::set_current_dir(previous_dir).unwrap();
+    result.unwrap();
+
+    let account = client.get_account(&keypair.pubkey()).unwrap();
+    assert!(account.executable);
 }
 
 #[test]

@@ -24,6 +24,7 @@
 //!     .unwrap();
 //! # }
 //! ```
+pub mod deploy_program;
 pub mod set_account;
 pub mod set_token_account;
 pub mod reset_account;

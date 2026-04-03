@@ -1,12 +1,16 @@
 use solana_client::rpc_request::RpcRequest;
 use solana_epoch_info::EpochInfo;
+use solana_keypair::{EncodableKey, Keypair};
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
+use solana_signer::Signer;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
+use std::path::{Path, PathBuf};
 
 use crate::error::{SurfnetError, SurfnetResult};
 pub mod builders;
 use builders::CheatcodeBuilder;
+use builders::deploy_program::DeployProgram;
 
 /// Direct state manipulation helpers for a running Surfnet.
 ///
@@ -213,6 +217,45 @@ impl<'a> Cheatcodes<'a> {
         self.time_travel(serde_json::json!([{ "absoluteTimestamp": timestamp }]))
     }
 
+    /// Deploy a program from local workspace artifacts.
+    ///
+    /// This looks for:
+    /// - `target/deploy/{program_name}.so`
+    /// - `target/deploy/{program_name}-keypair.json`
+    /// - `target/idl/{program_name}.json` (optional)
+    ///
+    /// If an IDL file exists, it is registered after the program bytes are written.
+    pub fn deploy_program(&self, program_name: &str) -> SurfnetResult<()> {
+        let deploy_dir = PathBuf::from("target/deploy");
+        let idl_dir = PathBuf::from("target/idl");
+        let so_path = deploy_dir.join(format!("{program_name}.so"));
+        let keypair_path = deploy_dir.join(format!("{program_name}-keypair.json"));
+        let idl_path = idl_dir.join(format!("{program_name}.json"));
+
+        let builder = DeployProgram::from_keypair_path(&keypair_path)?
+            .so_path(so_path)
+            .idl_path_if_exists(idl_path);
+
+        self.deploy(builder)
+    }
+
+    /// Deploy a program described by a [`DeployProgram`] builder.
+    ///
+    /// This writes the program bytes with `surfnet_writeProgram` and, when present,
+    /// registers the parsed IDL with `surfnet_registerIdl`.
+    pub fn deploy(&self, builder: DeployProgram) -> SurfnetResult<()> {
+        let program_id = builder.program_id();
+        let program_bytes = builder.load_so_bytes()?;
+        self.write_program(&program_id, &program_bytes)?;
+
+        if let Some(mut idl) = builder.load_idl()? {
+            idl.address = program_id.to_string();
+            self.register_idl(&idl)?;
+        }
+
+        Ok(())
+    }
+
     /// Execute a typed cheatcode builder.
     ///
     /// ```rust,no_run
@@ -244,6 +287,31 @@ impl<'a> Cheatcodes<'a> {
             .map_err(|e| SurfnetError::Cheatcode(format!("surfnet_timeTravel: {e}")))
     }
 
+    fn write_program(&self, program_id: &Pubkey, data: &[u8]) -> SurfnetResult<()> {
+        const PROGRAM_CHUNK_BYTES: usize = 15 * 1024 * 1024;
+
+        for (index, chunk) in data.chunks(PROGRAM_CHUNK_BYTES).enumerate() {
+            let offset = index * PROGRAM_CHUNK_BYTES;
+            let params = serde_json::json!([program_id.to_string(), hex::encode(chunk), offset,]);
+            self.call_cheatcode("surfnet_writeProgram", params)?;
+        }
+
+        Ok(())
+    }
+
+    fn register_idl(&self, idl: &surfpool_types::Idl) -> SurfnetResult<()> {
+        let client = self.rpc_client();
+        client
+            .send::<serde_json::Value>(
+                RpcRequest::Custom {
+                    method: "surfnet_registerIdl",
+                },
+                serde_json::json!([idl]),
+            )
+            .map_err(|e| SurfnetError::Cheatcode(format!("surfnet_registerIdl: {e}")))?;
+        Ok(())
+    }
+
     /// Internal helper for cheatcodes that return `()`.
     fn call_cheatcode(&self, method: &'static str, params: serde_json::Value) -> SurfnetResult<()> {
         let client = self.rpc_client();
@@ -257,6 +325,17 @@ impl<'a> Cheatcodes<'a> {
 fn spl_token_program_id() -> Pubkey {
     // spl_token::id() = TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
     Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+}
+
+fn read_keypair_pubkey(path: &Path) -> SurfnetResult<Pubkey> {
+    Keypair::read_from_file(path)
+        .map(|keypair| keypair.pubkey())
+        .map_err(|e| {
+            SurfnetError::Cheatcode(format!(
+                "failed to read deploy keypair from {}: {e}",
+                path.display()
+            ))
+        })
 }
 
 #[cfg(test)]
