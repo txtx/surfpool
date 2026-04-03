@@ -195,16 +195,16 @@ impl AdminRpc for SurfpoolAdminRpc {
     type Metadata = Option<RunloopContext>;
 
     fn exit(&self, meta: Self::Metadata) -> Result<()> {
-        let Some(ctx) = meta else {
+        let Some(_ctx) = meta else {
             return Err(RpcCustomError::NodeUnhealthy {
                 num_slots_behind: None,
             }
             .into());
         };
 
-        let _ = ctx
-            .simnet_commands_tx
-            .send(SimnetCommand::Terminate(ctx.id));
+        unsafe {
+            libc::raise(libc::SIGTERM);
+        }
 
         Ok(())
     }
