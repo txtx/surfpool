@@ -12,8 +12,6 @@ mod instrumented {
     use opentelemetry_sdk::{Resource, metrics::SdkMeterProvider};
     use prometheus::Encoder;
 
-    pub use super::*;
-
     static INIT: Once = Once::new();
     static METRICS: OnceLock<SurfpoolMetrics> = OnceLock::new();
     static METER_PROVIDER: OnceLock<SdkMeterProvider> = OnceLock::new();
@@ -174,14 +172,11 @@ mod instrumented {
                 });
             });
         });
-
         result
     }
 
-    pub fn metrics() -> &'static SurfpoolMetrics {
-        METRICS
-            .get()
-            .expect("telemetry not initialized. Call init_prometheus() first")
+    pub fn metrics() -> Option<&'static SurfpoolMetrics> {
+        METRICS.get()
     }
 
     pub fn shutdown() {

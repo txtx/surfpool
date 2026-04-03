@@ -1604,13 +1604,9 @@ impl Full for SurfpoolFullRpc {
         match status_update_rx.recv() {
             Ok(TransactionStatusEvent::SimulationFailure((error, metadata))) => {
                 #[cfg(feature = "prometheus")]
-                {
-                    crate::telemetry::metrics()
-                        .record_transaction(false, rpc_start.elapsed().as_secs_f64() * 1000.0);
-                    crate::telemetry::metrics().record_rpc_request(
-                        "sendTransaction",
-                        rpc_start.elapsed().as_secs_f64() * 1000.0,
-                    );
+                if let Some(m) = crate::telemetry::metrics() {
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as f64);
+                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as f64);
                 }
                 return Err(Error {
                     data: Some(
@@ -1648,18 +1644,15 @@ impl Full for SurfpoolFullRpc {
             }
             Ok(TransactionStatusEvent::ExecutionFailure(_)) => {
                 #[cfg(feature = "prometheus")]
-                crate::telemetry::metrics()
-                    .record_transaction(false, rpc_start.elapsed().as_secs_f64() * 1000.0);
+                if let Some(m) = crate::telemetry::metrics() {
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as f64);
+                }
             }
             Ok(TransactionStatusEvent::VerificationFailure(signature)) => {
                 #[cfg(feature = "prometheus")]
-                {
-                    crate::telemetry::metrics()
-                        .record_transaction(false, rpc_start.elapsed().as_secs_f64() * 1000.0);
-                    crate::telemetry::metrics().record_rpc_request(
-                        "sendTransaction",
-                        rpc_start.elapsed().as_secs_f64() * 1000.0,
-                    );
+                if let Some(m) = crate::telemetry::metrics() {
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as f64);
+                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as f64);
                 }
                 return Err(Error {
                     data: None,
@@ -1669,13 +1662,9 @@ impl Full for SurfpoolFullRpc {
             }
             Err(e) => {
                 #[cfg(feature = "prometheus")]
-                {
-                    crate::telemetry::metrics()
-                        .record_transaction(false, rpc_start.elapsed().as_secs_f64() * 1000.0);
-                    crate::telemetry::metrics().record_rpc_request(
-                        "sendTransaction",
-                        rpc_start.elapsed().as_secs_f64() * 1000.0,
-                    );
+                if let Some(m) = crate::telemetry::metrics() {
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as f64);
+                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as f64);
                 }
                 return Err(Error {
                     data: None,
@@ -1683,19 +1672,19 @@ impl Full for SurfpoolFullRpc {
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
             }
-            Ok(TransactionStatusEvent::Success(_)) => {
+            Ok(TransactionStatusEvent::Success(_)) =>
+            {
                 #[cfg(feature = "prometheus")]
-                crate::telemetry::metrics()
-                    .record_transaction(true, rpc_start.elapsed().as_secs_f64() * 1000.0);
+                if let Some(m) = crate::telemetry::metrics() {
+                    m.record_transaction(true, rpc_start.elapsed().as_millis() as f64);
+                }
             }
         }
 
         #[cfg(feature = "prometheus")]
-        crate::telemetry::metrics().record_rpc_request(
-            "sendTransaction",
-            rpc_start.elapsed().as_secs_f64() * 1000.0,
-        );
-
+        if let Some(m) = crate::telemetry::metrics() {
+            m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as f64);
+        }
         Ok(signature.to_string())
     }
 

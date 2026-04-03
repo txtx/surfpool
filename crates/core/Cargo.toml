@@ -100,7 +100,6 @@ anchor-lang-idl = { workspace = true }
 txtx-addon-kit = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }
 txtx-addon-network-svm = { workspace = true }
-# Prometheus metrics - declare normally, control via feature
 opentelemetry = { version = "0.28", default-features = false, features = ["metrics"], optional = true }
 opentelemetry_sdk = { version = "0.28", default-features = false, features = ["rt-tokio", "metrics"], optional = true }
 opentelemetry-prometheus = { version = "0.28", default-features = false, optional = true }

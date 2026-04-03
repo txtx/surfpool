@@ -102,7 +102,7 @@ impl SurfnetRemoteClient {
         commitment_config: CommitmentConfig,
     ) -> SurfpoolResult<GetAccountResult> {
         #[cfg(feature = "prometheus")]
-        let fetch_start = std::time::Instant;
+        let fetch_start = std::time::Instant::now();
 
         let res = self
             .client
@@ -150,7 +150,9 @@ impl SurfnetRemoteClient {
             None => GetAccountResult::None(*pubkey),
         };
         #[cfg(feature = "prometheus")]
-        crate::telemetry::metrics().record_remote_fetch(fetch_start.elapsed().as_millis() as f64);
+        if let Some(m) = crate::telemetry::metrics() {
+            m.record_remote_fetch(fetch_start.elapsed().as_millis() as f64);
+        }
         Ok(result)
     }
 
@@ -160,7 +162,7 @@ impl SurfnetRemoteClient {
         commitment_config: CommitmentConfig,
     ) -> SurfpoolResult<Vec<GetAccountResult>> {
         #[cfg(feature = "prometheus")]
-        let fetch_start = std::time::Instant;
+        let fetch_start = std::time::Instant::now();
 
         let remote_accounts = self
             .client
@@ -277,7 +279,9 @@ impl SurfnetRemoteClient {
             }
         }
         #[cfg(feature = "prometheus")]
-        crate::telemetry::metrics().record_remote_fetch(fetch_start.elapsed().as_millis() as f64);
+        if let Some(m) = crate::telemetry::metrics() {
+            m.record_remote_fetch(fetch_start.elapsed().as_millis() as f64);
+        }
         Ok(pubkeys
             .iter()
             .map(|pk| {

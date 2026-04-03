@@ -67,6 +67,7 @@ txtx-cloud = { workspace = true }
 txtx-core = { workspace = true }
 txtx-gql = { workspace = true }
 txtx-supervisor-ui = { workspace = true, optional = true }
+opentelemetry_sdk = "0.31.0"
 
 [features]
 default = ["cli", "sqlite", "subgraph"]
