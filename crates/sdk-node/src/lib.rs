@@ -95,6 +95,35 @@ impl Surfnet {
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
+    /// Fund multiple SOL accounts with explicit lamport balances.
+    #[napi]
+    pub fn fund_sol_many(&self, accounts: Vec<SolAccountFunding>) -> Result<()> {
+        let parsed_accounts = accounts
+            .iter()
+            .map(|account| {
+                account
+                    .address
+                    .parse::<Pubkey>()
+                    .map(|pubkey| (pubkey, account.lamports as u64))
+                    .map_err(|e| {
+                        Error::new(
+                            Status::InvalidArg,
+                            format!("Invalid address {}: {e}", account.address),
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let account_refs = parsed_accounts
+            .iter()
+            .map(|(pubkey, lamports)| (pubkey, *lamports))
+            .collect::<Vec<_>>();
+
+        self.inner
+            .cheatcodes()
+            .fund_sol_many(&account_refs)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    }
+
     /// Fund a token account (creates the ATA if needed).
     /// Uses spl_token program by default. Pass token_program for Token-2022.
     #[napi]
@@ -125,6 +154,70 @@ impl Surfnet {
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
+    /// Set the token balance for a wallet/mint pair.
+    #[napi]
+    pub fn set_token_balance(
+        &self,
+        owner: String,
+        mint: String,
+        amount: f64,
+        token_program: Option<String>,
+    ) -> Result<()> {
+        let owner_pk: Pubkey = owner
+            .parse()
+            .map_err(|e| Error::new(Status::InvalidArg, format!("Invalid owner: {e}")))?;
+        let mint_pk: Pubkey = mint
+            .parse()
+            .map_err(|e| Error::new(Status::InvalidArg, format!("Invalid mint: {e}")))?;
+        let tp = token_program
+            .map(|s| {
+                s.parse::<Pubkey>().map_err(|e| {
+                    Error::new(Status::InvalidArg, format!("Invalid token program: {e}"))
+                })
+            })
+            .transpose()?;
+
+        self.inner
+            .cheatcodes()
+            .set_token_balance(&owner_pk, &mint_pk, amount as u64, tp.as_ref())
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    }
+
+    /// Fund multiple wallets with the same token and amount.
+    #[napi]
+    pub fn fund_token_many(
+        &self,
+        owners: Vec<String>,
+        mint: String,
+        amount: f64,
+        token_program: Option<String>,
+    ) -> Result<()> {
+        let owner_pubkeys = owners
+            .iter()
+            .map(|owner| {
+                owner.parse::<Pubkey>().map_err(|e| {
+                    Error::new(Status::InvalidArg, format!("Invalid owner {owner}: {e}"))
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let owner_refs = owner_pubkeys.iter().collect::<Vec<_>>();
+        let mint_pk: Pubkey = mint
+            .parse()
+            .map_err(|e| Error::new(Status::InvalidArg, format!("Invalid mint: {e}")))?;
+        let tp = token_program
+            .map(|s| {
+                s.parse::<Pubkey>().map_err(|e| {
+                    Error::new(Status::InvalidArg, format!("Invalid token program: {e}"))
+                })
+            })
+            .transpose()?;
+
+        self.inner
+            .cheatcodes()
+            .fund_token_many(&owner_refs, &mint_pk, amount as u64, tp.as_ref())
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    }
+
     /// Set arbitrary account data.
     #[napi]
     pub fn set_account(
@@ -143,6 +236,45 @@ impl Surfnet {
         self.inner
             .cheatcodes()
             .set_account(&addr, lamports as u64, &data, &owner_pk)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    }
+
+    /// Move Surfnet time forward to an absolute epoch.
+    #[napi]
+    pub fn time_travel_to_epoch(&self, epoch: f64) -> Result<EpochInfoValue> {
+        self.inner
+            .cheatcodes()
+            .time_travel_to_epoch(epoch as u64)
+            .map(EpochInfoValue::from)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    }
+
+    /// Move Surfnet time forward to an absolute slot.
+    #[napi]
+    pub fn time_travel_to_slot(&self, slot: f64) -> Result<EpochInfoValue> {
+        self.inner
+            .cheatcodes()
+            .time_travel_to_slot(slot as u64)
+            .map(EpochInfoValue::from)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    }
+
+    /// Move Surfnet time forward to an absolute Unix timestamp in milliseconds.
+    #[napi]
+    pub fn time_travel_to_timestamp(&self, timestamp: f64) -> Result<EpochInfoValue> {
+        self.inner
+            .cheatcodes()
+            .time_travel_to_timestamp(timestamp as u64)
+            .map(EpochInfoValue::from)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+    }
+
+    /// Deploy a program by discovering local Anchor/Agave artifacts.
+    #[napi]
+    pub fn deploy_program(&self, program_name: String) -> Result<()> {
+        self.inner
+            .cheatcodes()
+            .deploy_program(&program_name)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
@@ -200,4 +332,33 @@ pub struct SurfnetConfig {
 pub struct KeypairInfo {
     pub public_key: String,
     pub secret_key: Vec<u8>,
+}
+
+#[napi(object)]
+pub struct SolAccountFunding {
+    pub address: String,
+    pub lamports: f64,
+}
+
+#[napi(object)]
+pub struct EpochInfoValue {
+    pub epoch: f64,
+    pub slot_index: f64,
+    pub slots_in_epoch: f64,
+    pub absolute_slot: f64,
+    pub block_height: f64,
+    pub transaction_count: Option<f64>,
+}
+
+impl From<solana_epoch_info::EpochInfo> for EpochInfoValue {
+    fn from(value: solana_epoch_info::EpochInfo) -> Self {
+        Self {
+            epoch: value.epoch as f64,
+            slot_index: value.slot_index as f64,
+            slots_in_epoch: value.slots_in_epoch as f64,
+            absolute_slot: value.absolute_slot as f64,
+            block_height: value.block_height as f64,
+            transaction_count: value.transaction_count.map(|count| count as f64),
+        }
+    }
 }

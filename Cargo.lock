@@ -11420,6 +11420,7 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "serde_json",
+ "solana-epoch-info",
  "solana-keypair",
  "solana-pubkey 3.0.0",
  "solana-signer",

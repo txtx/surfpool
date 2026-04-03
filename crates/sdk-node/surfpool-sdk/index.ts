@@ -2,9 +2,11 @@ import {
   Surfnet as SurfnetInner,
   SurfnetConfig,
   KeypairInfo,
+  EpochInfoValue,
+  SolAccountFunding,
 } from "./internal";
 
-export { SurfnetConfig, KeypairInfo } from "./internal";
+export { SurfnetConfig, KeypairInfo, EpochInfoValue, SolAccountFunding } from "./internal";
 
 /**
  * A running Surfpool instance with RPC/WS endpoints on dynamic ports.
@@ -52,12 +54,17 @@ export class Surfnet {
 
   /** The pre-funded payer secret key as a 64-byte Uint8Array. */
   get payerSecretKey(): Uint8Array {
-    return this.inner.payerSecretKey;
+    return Uint8Array.from(this.inner.payerSecretKey);
   }
 
   /** Fund a SOL account with lamports. */
   fundSol(address: string, lamports: number): void {
     this.inner.fundSol(address, lamports);
+  }
+
+  /** Fund multiple SOL accounts with explicit lamport balances. */
+  fundSolMany(accounts: SolAccountFunding[]): void {
+    this.inner.fundSolMany(accounts);
   }
 
   /**
@@ -73,6 +80,26 @@ export class Surfnet {
     this.inner.fundToken(owner, mint, amount, tokenProgram ?? null);
   }
 
+  /** Set the token balance for a wallet/mint pair. */
+  setTokenBalance(
+    owner: string,
+    mint: string,
+    amount: number,
+    tokenProgram?: string
+  ): void {
+    this.inner.setTokenBalance(owner, mint, amount, tokenProgram ?? null);
+  }
+
+  /** Fund multiple wallets with the same token and amount. */
+  fundTokenMany(
+    owners: string[],
+    mint: string,
+    amount: number,
+    tokenProgram?: string
+  ): void {
+    this.inner.fundTokenMany(owners, mint, amount, tokenProgram ?? null);
+  }
+
   /** Set arbitrary account data. */
   setAccount(
     address: string,
@@ -81,6 +108,26 @@ export class Surfnet {
     owner: string
   ): void {
     this.inner.setAccount(address, lamports, Array.from(data), owner);
+  }
+
+  /** Move Surfnet time forward to an absolute epoch. */
+  timeTravelToEpoch(epoch: number): EpochInfoValue {
+    return this.inner.timeTravelToEpoch(epoch);
+  }
+
+  /** Move Surfnet time forward to an absolute slot. */
+  timeTravelToSlot(slot: number): EpochInfoValue {
+    return this.inner.timeTravelToSlot(slot);
+  }
+
+  /** Move Surfnet time forward to an absolute Unix timestamp in milliseconds. */
+  timeTravelToTimestamp(timestamp: number): EpochInfoValue {
+    return this.inner.timeTravelToTimestamp(timestamp);
+  }
+
+  /** Deploy a program by discovering local Anchor/Agave artifacts. */
+  deployProgram(programName: string): void {
+    this.inner.deployProgram(programName);
   }
 
   /** Get the associated token address for a wallet/mint pair. */
