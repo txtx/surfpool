@@ -35,10 +35,15 @@ uuid = { workspace = true, features = ["v4"] }
 surfpool-core = { workspace = true }
 surfpool-types = { workspace = true }
 
+[build-dependencies]
+reqwest = { workspace = true, features = ["blocking", "default-tls"] }
+zip = { workspace = true }
+
 [dev-dependencies]
 solana-system-interface = { workspace = true }
 solana-transaction = { workspace = true }
 solana-message = { workspace = true }
 solana-hash = { workspace = true }
 solana-commitment-config = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

@@ -23,11 +23,15 @@
 //! then generate a consolidated HTML report:
 //!
 //! ```rust,no_run
-//! use surfpool_sdk::report::SurfpoolReport;
+//! use surfpool_sdk::report::{generate, generate_default, SurfpoolReport, SurfpoolReportOptions};
 //!
 //! // After tests complete:
 //! let report = SurfpoolReport::from_directory("target/surfpool-reports").unwrap();
 //! report.write_html("target/surfpool-report.html").unwrap();
+//!
+//! // Or use the explicit one-shot API:
+//! generate_default().unwrap();
+//! generate(SurfpoolReportOptions::default()).unwrap();
 //! ```
 
 mod cheatcodes;
