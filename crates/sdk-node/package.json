@@ -2,11 +2,19 @@
   "name": "surfpool-sdk",
   "version": "0.1.0",
   "description": "Embed a Surfpool Solana runtime in your Node.js tests",
-  "main": "surfpool-sdk/internal.js",
-  "types": "surfpool-sdk/internal.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "files": [
-    "dist/",
-    "surfpool-sdk/"
+    "README.md",
+    "dist/**",
+    "surfpool-sdk/internal.d.ts",
+    "surfpool-sdk/internal.js"
   ],
   "napi": {
     "name": "surfpool-sdk",
@@ -15,22 +23,45 @@
       "additional": [
         "x86_64-apple-darwin",
         "aarch64-apple-darwin",
-        "x86_64-unknown-linux-gnu",
-        "x86_64-unknown-linux-musl",
-        "universal-apple-darwin"
+        "x86_64-unknown-linux-gnu"
       ]
     }
   },
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/solana-foundation/surfpool.git",
+    "directory": "crates/sdk-node"
+  },
+  "homepage": "https://github.com/solana-foundation/surfpool",
+  "bugs": {
+    "url": "https://github.com/solana-foundation/surfpool/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "build": "napi build --platform --release surfpool-sdk --dts internal.d.ts --js internal.js",
-    "build:debug": "napi build --platform surfpool-sdk --dts internal.d.ts --js internal.js",
+    "build": "npm run build:native && npm run build:ts",
+    "build:debug": "npm run build:native:debug && npm run build:ts",
+    "build:native": "napi build --platform --release surfpool-sdk --dts internal.d.ts --js internal.js",
+    "build:native:debug": "napi build --platform surfpool-sdk --dts internal.d.ts --js internal.js",
+    "build:ts": "tsc",
+    "create-npm-dir": "napi create-npm-dir -t .",
     "artifacts": "napi artifacts",
-    "tsc": "tsc && cp surfpool-sdk/internal.d.ts dist/internal.d.ts",
+    "pack:dry-run": "npm pack --dry-run",
+    "smoke": "node ./scripts/smoke.js",
     "prepublishOnly": "napi prepublish -t npm"
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.4",
     "typescript": "^5.7.0"
+  },
+  "optionalDependencies": {
+    "surfpool-sdk-darwin-x64": "0.1.0",
+    "surfpool-sdk-darwin-arm64": "0.1.0",
+    "surfpool-sdk-linux-x64-gnu": "0.1.0"
   }
 }
