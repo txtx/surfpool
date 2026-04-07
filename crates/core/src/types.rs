@@ -1262,7 +1262,7 @@ impl std::fmt::Display for TimeTravelError {
 
 impl std::error::Error for TimeTravelError {}
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 /// Tracks the loaded addresses with its associated index within an Address Lookup Table
 pub struct IndexedLoadedAddresses {
     pub writable: Vec<(u8, Pubkey)>,
@@ -1284,7 +1284,7 @@ impl IndexedLoadedAddresses {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 /// Maps an Address Lookup Table entry to its indexed loaded addresses
 pub struct TransactionLoadedAddresses(IndexMap<Pubkey, IndexedLoadedAddresses>);
 

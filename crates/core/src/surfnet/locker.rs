@@ -70,7 +70,7 @@ use crate::{
     error::{SurfpoolError, SurfpoolResult},
     helpers::time_travel::calculate_time_travel_clock,
     rpc::utils::{convert_transaction_metadata_from_canonical, verify_pubkey},
-    surfnet::{FINALIZATION_SLOT_THRESHOLD, SLOTS_PER_EPOCH},
+    surfnet::{FINALIZATION_SLOT_THRESHOLD, ProfilingJob, SLOTS_PER_EPOCH},
     types::{
         GeyserAccountUpdate, OfflineAccountConfig, RemoteRpcResult, SurfnetTransactionStatus,
         TimeTravelConfig, TokenAccount, TransactionLoadedAddresses, TransactionWithStatusMeta,
@@ -1068,7 +1068,7 @@ impl SurfnetSvmLocker {
     ) -> SurfpoolResult<()> {
         let do_propagate_status_updates = true;
         let signature = transaction.signatures[0];
-        let profile_result = match self
+        let (profile_result, ix_profile_rx) = match self
             .fetch_all_tx_accounts_then_process_tx_returning_profile_res(
                 remote_ctx,
                 transaction,
@@ -1105,6 +1105,32 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm_writer| {
             svm_writer.write_executed_profile_result(signature, profile_result)
         })?;
+
+        // Spawn an async task to receive profiling results and append them to the
+        // stored profiles
+        if let Some(rx) = ix_profile_rx {
+            let locker = self.clone();
+            tokio::spawn(async move {
+                let ix_profiles = tokio::task::spawn_blocking(move || rx.recv().ok().flatten())
+                    .await
+                    .ok()
+                    .flatten();
+                if let Some(profiles) = ix_profiles {
+                    locker.with_svm_writer(|svm_writer| {
+                        if let Ok(Some(mut keyed_profile)) = svm_writer
+                            .executed_transaction_profiles
+                            .get(&signature.to_string())
+                        {
+                            keyed_profile.instruction_profiles = Some(profiles);
+                            let _ = svm_writer
+                                .executed_transaction_profiles
+                                .store(signature.to_string(), keyed_profile);
+                        }
+                    });
+                }
+            });
+        }
+
         Ok(())
     }
 
@@ -1125,7 +1151,7 @@ impl SurfnetSvmLocker {
         let skip_preflight = true; // skip preflight checks during transaction profiling
         let sigverify = true; // do verify signatures during transaction profiling
         let do_propagate_status_updates = false; // don't propagate status updates during transaction profiling
-        let mut profile_result = svm_locker
+        let (mut profile_result, ix_profile_rx) = svm_locker
             .fetch_all_tx_accounts_then_process_tx_returning_profile_res(
                 remote_ctx,
                 transaction,
@@ -1143,7 +1169,35 @@ impl SurfnetSvmLocker {
             svm_writer.write_simulated_profile_result(uuid, tag, profile_result)
         })?;
 
+        if let Some(rx) = ix_profile_rx {
+            let locker = self.clone();
+            tokio::spawn(async move {
+                let ix_profiles = tokio::task::spawn_blocking(move || rx.recv().ok().flatten())
+                    .await
+                    .ok()
+                    .flatten();
+                if let Some(profiles) = ix_profiles {
+                    locker.with_svm_writer(|svm_writer| {
+                        if let Ok(Some(mut keyed_profile)) = svm_writer
+                            .simulated_transaction_profiles
+                            .get(&uuid.to_string())
+                        {
+                            keyed_profile.instruction_profiles = Some(profiles);
+                            let _ = svm_writer
+                                .simulated_transaction_profiles
+                                .store(uuid.to_string(), keyed_profile);
+                        }
+                    });
+                }
+            });
+        }
+
         Ok(self.with_contextualized_svm_reader(|_| uuid))
+    }
+
+
+    pub fn profiling_job_tx(&self) -> Option<Sender<ProfilingJob>> {
+        self.with_svm_reader(|svm| svm.profiling_job_tx.clone())
     }
 
     async fn fetch_all_tx_accounts_then_process_tx_returning_profile_res(
@@ -1154,7 +1208,7 @@ impl SurfnetSvmLocker {
         skip_preflight: bool,
         sigverify: bool,
         do_propagate: bool,
-    ) -> SurfpoolResult<KeyedProfileResult> {
+    ) -> SurfpoolResult<(KeyedProfileResult, Option<crossbeam_channel::Receiver<Option<Vec<ProfileResult>>>>)> {
         let signature = transaction.signatures[0];
 
         // Sigverify the transaction upfront before doing any account fetching or other pre-processing.
@@ -1310,29 +1364,28 @@ impl SurfnetSvmLocker {
 
         let loaded_addresses = tx_loaded_addresses.as_ref().map(|l| l.loaded_addresses());
 
-        let ix_profiles = if self.is_instruction_profiling_enabled() {
-            match self
-                .generate_instruction_profiles(
-                    &transaction,
-                    &transaction_accounts,
-                    &tx_loaded_addresses,
-                    &accounts_before,
-                    &token_accounts_before,
-                    &token_programs,
-                    pre_execution_capture.clone(),
-                    &status_tx,
-                )
-                .await
-            {
-                Ok(profiles) => profiles,
-                Err(e) => {
-                    let _ = self.simnet_events_tx().try_send(SimnetEvent::error(format!(
-                        "Failed to generate instruction profiles: {}",
-                        e
-                    )));
-                    None
-                }
+        let ix_profile_rx = if self.is_instruction_profiling_enabled() {
+            if let Some(profiling_job_tx) = self.profiling_job_tx() {
+                let profiling_svm = self.with_svm_reader(|r| r.clone_for_profiling());
+                let (result_tx, result_rx) = crossbeam_channel::bounded(1);
+                let job = ProfilingJob {
+                    profiling_svm,
+                    transaction: transaction.clone(),
+                    transaction_accounts: transaction_accounts.to_vec(),
+                    loaded_addresses: tx_loaded_addresses.clone(),
+                    accounts_before: accounts_before.to_vec(),
+                    token_accounts_before: token_accounts_before.to_vec(),
+                    token_programs: token_programs.to_vec(),
+                    pre_execution_capture: pre_execution_capture.clone(),
+                    result_tx,
+                };
+                let _ = profiling_job_tx.send(job);
+                Some(result_rx)
             }
+            else {
+                None
+            }
+        
         } else {
             None
         };
@@ -1353,17 +1406,20 @@ impl SurfnetSvmLocker {
             )
             .await?;
 
-        Ok(KeyedProfileResult::new(
-            latest_absolute_slot,
-            UuidOrSignature::Signature(signature),
-            ix_profiles,
-            profile_result,
-            readonly_account_states,
+        Ok((
+            KeyedProfileResult::new(
+                latest_absolute_slot,
+                UuidOrSignature::Signature(signature),
+                None,
+                profile_result,
+                readonly_account_states,
+            ),
+            ix_profile_rx,
         ))
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn generate_instruction_profiles(
+    pub async fn generate_instruction_profiles(
         &self,
         transaction: &VersionedTransaction,
         transaction_accounts: &[Pubkey],

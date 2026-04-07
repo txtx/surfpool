@@ -5,12 +5,33 @@ use crossbeam_channel::Sender;
 use solana_clock::Clock;
 use solana_epoch_info::EpochInfo;
 use solana_transaction::versioned::VersionedTransaction;
-use surfpool_types::{CheatcodeConfig, RpcConfig, SimnetCommand};
+use surfpool_types::{CheatcodeConfig, RpcConfig, RpcProfileResultConfig, SimnetCommand, UiKeyedProfileResult, types::UuidOrSignature};
 
 use crate::{
     rpc::RunloopContext,
     surfnet::{PluginCommand, locker::SurfnetSvmLocker, svm::SurfnetSvm},
 };
+
+/// Polls `get_profile_result` until `instruction_profiles` is populated or the timeout is reached.
+/// Instruction profiles are appended asynchronously, so tests need to wait for them.
+pub async fn poll_for_instruction_profiles(
+    svm_locker: &SurfnetSvmLocker,
+    key: UuidOrSignature,
+    config: &RpcProfileResultConfig,
+    timeout: std::time::Duration,
+) -> UiKeyedProfileResult {
+    let start = std::time::Instant::now();
+    loop {
+        let result = svm_locker
+            .get_profile_result(key.clone(), config)
+            .unwrap()
+            .expect("Profile result should exist");
+        if result.instruction_profiles.is_some() || start.elapsed() >= timeout {
+            return result;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
 
 pub fn get_free_port() -> Result<u16, String> {
     let listener =
