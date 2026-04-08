@@ -151,7 +151,7 @@ impl SurfnetRemoteClient {
         };
         #[cfg(feature = "prometheus")]
         if let Some(m) = crate::telemetry::metrics() {
-            m.record_remote_fetch(fetch_start.elapsed().as_millis() as f64);
+            m.record_remote_fetch(fetch_start.elapsed().as_millis() as u64);
         }
         Ok(result)
     }
@@ -280,7 +280,7 @@ impl SurfnetRemoteClient {
         }
         #[cfg(feature = "prometheus")]
         if let Some(m) = crate::telemetry::metrics() {
-            m.record_remote_fetch(fetch_start.elapsed().as_millis() as f64);
+            m.record_remote_fetch(fetch_start.elapsed().as_millis() as u64);
         }
         Ok(pubkeys
             .iter()

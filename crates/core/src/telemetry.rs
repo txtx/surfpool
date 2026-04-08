@@ -22,7 +22,7 @@ mod instrumented {
         tx_count: Counter<u64>,
 
         // Transaction processing latency
-        tx_latency_ms: Histogram<f64>,
+        tx_latency_ms: Histogram<u64>,
 
         // RPC request rate by method
         rpc_request_count: Counter<u64>,
