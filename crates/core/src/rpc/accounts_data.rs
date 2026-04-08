@@ -449,7 +449,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             if let Some(m) = crate::telemetry::metrics() {
                 m.record_rpc_request(
                     "getMultipleAccounts",
-                    rpc_start.elapsed().as_millis() as  u64,
+                    rpc_start.elapsed().as_millis() as u64,
                 );
             }
 
