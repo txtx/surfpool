@@ -635,7 +635,7 @@ impl Minimal for SurfpoolMinimalRpc {
 
             #[cfg(feature = "prometheus")]
             if let Some(m) = crate::telemetry::metrics() {
-                m.record_rpc_request("getBalance", rpc_start.elapsed().as_millis() as f64);
+                m.record_rpc_request("getBalance", rpc_start.elapsed().as_millis() as u64);
             }
 
             Ok(RpcResponse {

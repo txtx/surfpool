@@ -28,10 +28,10 @@ mod instrumented {
         rpc_request_count: Counter<u64>,
 
         // RPC request latency by method
-        rpc_latency_ms: Histogram<f64>,
+        rpc_latency_ms: Histogram<u64>,
 
         // Remote account fetch latency
-        remote_fetch_latency_ms: Histogram<f64>,
+        remote_fetch_latency_ms: Histogram<u64>,
     }
 
     impl SurfpoolMetrics {
@@ -43,7 +43,7 @@ mod instrumented {
                     .build(),
 
                 tx_latency_ms: meter
-                    .f64_histogram("surfpool_transaction_processing_ms")
+                    .u64_histogram("surfpool_transaction_processing_ms")
                     .with_description("Transaction processing latency in milliseconds")
                     .build(),
 
@@ -53,33 +53,33 @@ mod instrumented {
                     .build(),
 
                 rpc_latency_ms: meter
-                    .f64_histogram("surfpool_rpc_latency_ms")
+                    .u64_histogram("surfpool_rpc_latency_ms")
                     .with_description("RPC request latency in milliseconds by method")
                     .build(),
 
                 remote_fetch_latency_ms: meter
-                    .f64_histogram("surfpool_remote_fetch_latency_ms")
+                    .u64_histogram("surfpool_remote_fetch_latency_ms")
                     .with_description("Remote account fetch latency from mainnet in milliseconds")
                     .build(),
             }
         }
 
         /// Called in send_transaction() — records success or failure + latency
-        pub fn record_transaction(&self, success: bool, latency_ms: f64) {
+        pub fn record_transaction(&self, success: bool, latency_ms: u64) {
             let status = if success { "success" } else { "failure" };
             self.tx_count.add(1, &[KeyValue::new("status", status)]);
             self.tx_latency_ms.record(latency_ms, &[]);
         }
 
         /// Called in RPC handlers — records which method was called + how long it took
-        pub fn record_rpc_request(&self, method: &str, latency_ms: f64) {
+        pub fn record_rpc_request(&self, method: &str, latency_ms: u64) {
             let attrs = &[KeyValue::new("method", method.to_string())];
             self.rpc_request_count.add(1, attrs);
             self.rpc_latency_ms.record(latency_ms, attrs);
         }
 
         /// Called when fetching accounts from mainnet (remote cloning)
-        pub fn record_remote_fetch(&self, latency_ms: f64) {
+        pub fn record_remote_fetch(&self, latency_ms: u64) {
             self.remote_fetch_latency_ms.record(latency_ms, &[]);
         }
     }

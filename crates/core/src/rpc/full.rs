@@ -1605,8 +1605,8 @@ impl Full for SurfpoolFullRpc {
             Ok(TransactionStatusEvent::SimulationFailure((error, metadata))) => {
                 #[cfg(feature = "prometheus")]
                 if let Some(m) = crate::telemetry::metrics() {
-                    m.record_transaction(false, rpc_start.elapsed().as_millis() as f64);
-                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as f64);
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as u64);
+                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as u64);
                 }
                 return Err(Error {
                     data: Some(
@@ -1645,14 +1645,14 @@ impl Full for SurfpoolFullRpc {
             Ok(TransactionStatusEvent::ExecutionFailure(_)) => {
                 #[cfg(feature = "prometheus")]
                 if let Some(m) = crate::telemetry::metrics() {
-                    m.record_transaction(false, rpc_start.elapsed().as_millis() as f64);
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as u64);
                 }
             }
             Ok(TransactionStatusEvent::VerificationFailure(signature)) => {
                 #[cfg(feature = "prometheus")]
                 if let Some(m) = crate::telemetry::metrics() {
-                    m.record_transaction(false, rpc_start.elapsed().as_millis() as f64);
-                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as f64);
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as u64);
+                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as u64);
                 }
                 return Err(Error {
                     data: None,
@@ -1663,8 +1663,8 @@ impl Full for SurfpoolFullRpc {
             Err(e) => {
                 #[cfg(feature = "prometheus")]
                 if let Some(m) = crate::telemetry::metrics() {
-                    m.record_transaction(false, rpc_start.elapsed().as_millis() as f64);
-                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as f64);
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as u64);
+                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as u64);
                 }
                 return Err(Error {
                     data: None,
@@ -1676,14 +1676,14 @@ impl Full for SurfpoolFullRpc {
             {
                 #[cfg(feature = "prometheus")]
                 if let Some(m) = crate::telemetry::metrics() {
-                    m.record_transaction(true, rpc_start.elapsed().as_millis() as f64);
+                    m.record_transaction(true, rpc_start.elapsed().as_millis() as u64);
                 }
             }
         }
 
         #[cfg(feature = "prometheus")]
         if let Some(m) = crate::telemetry::metrics() {
-            m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as f64);
+            m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as u64);
         }
         Ok(signature.to_string())
     }

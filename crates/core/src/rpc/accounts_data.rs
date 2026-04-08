@@ -381,7 +381,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
 
             #[cfg(feature = "prometheus")]
             if let Some(m) = crate::telemetry::metrics() {
-                m.record_rpc_request("getAccountInfo", rpc_start.elapsed().as_millis() as f64);
+                m.record_rpc_request("getAccountInfo", rpc_start.elapsed().as_millis() as u64);
             }
             svm_locker.write_account_update(account_update.clone());
 
@@ -449,7 +449,7 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             if let Some(m) = crate::telemetry::metrics() {
                 m.record_rpc_request(
                     "getMultipleAccounts",
-                    rpc_start.elapsed().as_millis() as f64,
+                    rpc_start.elapsed().as_millis() as  u64,
                 );
             }
 
