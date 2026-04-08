@@ -16,10 +16,6 @@ use agave_geyser_plugin_interface::geyser_plugin_interface::{
 use chrono::{Local, Utc};
 use crossbeam::select;
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use ipc_channel::{
-    ipc::{IpcOneShotServer, IpcReceiver},
-    router::RouterProxy,
-};
 use itertools::Itertools;
 use jsonrpc_core::MetaIoHandler;
 use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
@@ -224,7 +220,7 @@ pub async fn start_local_surfnet_runloop(
 
     let (plugin_commands_tx, plugin_commands_rx) = unbounded::<PluginCommand>();
 
-    let (_rpc_handle, _ws_handle) = start_rpc_servers_runloop(
+    let (_rpc_handle, _ws_handle, shutdown_rpc_servers) = start_rpc_servers_runloop(
         &config,
         &simnet_commands_tx,
         svm_locker.clone(),
@@ -322,6 +318,7 @@ pub async fn start_local_surfnet_runloop(
         &remote_rpc_client,
         simnet_config.expiry.map(|e| e * 1000),
         &simnet_config,
+        Some(shutdown_rpc_servers),
     )
     .await
 }
@@ -337,6 +334,7 @@ pub async fn start_block_production_runloop(
     remote_rpc_client: &Option<SurfnetRemoteClient>,
     expiry_duration_ms: Option<u64>,
     simnet_config: &SimnetConfig,
+    mut shutdown_rpc_servers: Option<Box<dyn FnOnce() + Send>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let remote_client_with_commitment = remote_rpc_client.as_ref().map(|c| {
         (
@@ -495,6 +493,11 @@ pub async fn start_block_production_runloop(
                     SimnetCommand::Terminate(_) => {
                         // Explicitly shutdown storage to trigger WAL checkpoint before exiting
                         svm_locker.shutdown();
+                        // Close RPC servers on a separate thread to avoid dropping
+                        // Tokio runtimes from within an async context
+                        if let Some(shutdown_fn) = shutdown_rpc_servers.take() {
+                            std::thread::spawn(shutdown_fn);
+                        }
                         break;
                     }
                     SimnetCommand::StartRunbookExecution(runbook_id) => {
@@ -696,10 +699,6 @@ fn start_geyser_runloop(
 
             plugin_manager.plugins.push(plugin);
         }
-
-        let ipc_router = RouterProxy::new();
-
-
 
         let err = loop {
             use agave_geyser_plugin_interface::geyser_plugin_interface::{ReplicaAccountInfoV3, ReplicaAccountInfoVersions};
@@ -967,7 +966,7 @@ async fn start_rpc_servers_runloop(
     svm_locker: SurfnetSvmLocker,
     remote_rpc_client: &Option<SurfnetRemoteClient>,
     plugin_commands_tx: Sender<PluginCommand>,
-) -> Result<(JoinHandle<()>, JoinHandle<()>), String> {
+) -> Result<(JoinHandle<()>, JoinHandle<()>, Box<dyn FnOnce() + Send>), String> {
     let rpc_addr: SocketAddr = config
         .rpc
         .get_rpc_base_url()
@@ -992,17 +991,24 @@ async fn start_rpc_servers_runloop(
         plugin_commands_tx,
     );
 
-    let rpc_handle =
+    let (rpc_handle, rpc_close_handle) =
         start_http_rpc_server_runloop(config, middleware.clone(), simnet_events_tx.clone()).await?;
-    let ws_handle = start_ws_rpc_server_runloop(config, middleware, simnet_events_tx).await?;
-    Ok((rpc_handle, ws_handle))
+    let (ws_handle, ws_close_handle) =
+        start_ws_rpc_server_runloop(config, middleware, simnet_events_tx).await?;
+
+    let shutdown_rpc_servers: Box<dyn FnOnce() + Send> = Box::new(move || {
+        rpc_close_handle.close();
+        ws_close_handle.close();
+    });
+
+    Ok((rpc_handle, ws_handle, shutdown_rpc_servers))
 }
 
 async fn start_http_rpc_server_runloop(
     config: &SurfpoolConfig,
     middleware: SurfpoolMiddleware,
     simnet_events_tx: Sender<SimnetEvent>,
-) -> Result<JoinHandle<()>, String> {
+) -> Result<(JoinHandle<()>, jsonrpc_http_server::CloseHandle), String> {
     let server_bind: SocketAddr = config
         .rpc
         .get_rpc_base_url()
@@ -1035,6 +1041,9 @@ async fn start_http_rpc_server_runloop(
     io.extend_with(rpc::bank_data::SurfpoolBankDataRpc.to_delegate());
     io.extend_with(rpc::admin::SurfpoolAdminRpc.to_delegate());
 
+    let (close_handle_tx, close_handle_rx) =
+        crossbeam_channel::bounded::<Result<jsonrpc_http_server::CloseHandle, String>>(1);
+
     let _handle = hiro_system_kit::thread_named("RPC Handler")
         .spawn(move || {
             let server = match ServerBuilder::new(io)
@@ -1045,26 +1054,30 @@ async fn start_http_rpc_server_runloop(
             {
                 Ok(server) => server,
                 Err(e) => {
-                    let _ = simnet_events_tx.send(SimnetEvent::Aborted(format!(
-                        "Failed to start RPC server: {:?}",
-                        e
-                    )));
+                    let error = format!("Failed to start RPC server: {:?}", e);
+                    let _ = close_handle_tx.send(Err(error.clone()));
+                    let _ = simnet_events_tx.send(SimnetEvent::Aborted(error));
                     return;
                 }
             };
 
+            let _ = close_handle_tx.send(Ok(server.close_handle()));
             server.wait();
             let _ = simnet_events_tx.send(SimnetEvent::Shutdown);
         })
         .map_err(|e| format!("Failed to spawn RPC Handler thread: {:?}", e))?;
 
-    Ok(_handle)
+    let close_handle = close_handle_rx
+        .recv()
+        .map_err(|_| "Failed to receive HTTP RPC server startup result".to_string())??;
+
+    Ok((_handle, close_handle))
 }
 async fn start_ws_rpc_server_runloop(
     config: &SurfpoolConfig,
     middleware: SurfpoolMiddleware,
     simnet_events_tx: Sender<SimnetEvent>,
-) -> Result<JoinHandle<()>, String> {
+) -> Result<(JoinHandle<()>, jsonrpc_ws_server::CloseHandle), String> {
     let ws_server_bind: SocketAddr = config
         .rpc
         .get_ws_base_url()
@@ -1075,6 +1088,9 @@ async fn start_ws_rpc_server_runloop(
     let ws_middleware = SurfpoolWebsocketMiddleware::new(middleware.clone(), None);
 
     let mut rpc_io = PubSubHandler::new(MetaIoHandler::with_middleware(ws_middleware));
+
+    let (close_handle_tx, close_handle_rx) =
+        crossbeam_channel::bounded::<Result<jsonrpc_ws_server::CloseHandle, String>>(1);
 
     let _ws_handle = hiro_system_kit::thread_named("WebSocket RPC Handler")
         .spawn(move || {
@@ -1120,13 +1136,13 @@ async fn start_ws_rpc_server_runloop(
                 {
                     Ok(server) => server,
                     Err(e) => {
-                        let _ = simnet_events_tx.send(SimnetEvent::Aborted(format!(
-                            "Failed to start WebSocket RPC server: {:?}",
-                            e
-                        )));
+                        let error = format!("Failed to start WebSocket RPC server: {:?}", e);
+                        let _ = close_handle_tx.send(Err(error.clone()));
+                        let _ = simnet_events_tx.send(SimnetEvent::Aborted(error));
                         return;
                     }
                 };
+                let _ = close_handle_tx.send(Ok(server.close_handle()));
                 // The server itself is blocking, so spawn it in a separate thread if needed
                 tokio::task::spawn_blocking(move || {
                     server.wait().unwrap();
@@ -1138,5 +1154,10 @@ async fn start_ws_rpc_server_runloop(
             });
         })
         .map_err(|e| format!("Failed to spawn WebSocket RPC Handler thread: {:?}", e))?;
-    Ok(_ws_handle)
+
+    let close_handle = close_handle_rx
+        .recv()
+        .map_err(|_| "Failed to receive WebSocket RPC server startup result".to_string())??;
+
+    Ok((_ws_handle, close_handle))
 }
