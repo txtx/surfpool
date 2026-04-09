@@ -1562,6 +1562,9 @@ impl Full for SurfpoolFullRpc {
         data: String,
         config: Option<SurfpoolRpcSendTransactionConfig>,
     ) -> Result<String> {
+        #[cfg(feature = "prometheus")]
+        let rpc_start = std::time::Instant::now();
+
         let config = config.unwrap_or_default();
         let tx_encoding = config
             .base
@@ -1600,6 +1603,11 @@ impl Full for SurfpoolFullRpc {
 
         match status_update_rx.recv() {
             Ok(TransactionStatusEvent::SimulationFailure((error, metadata))) => {
+                #[cfg(feature = "prometheus")]
+                if let Some(m) = crate::telemetry::metrics() {
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as u64);
+                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as u64);
+                }
                 return Err(Error {
                     data: Some(
                         serde_json::to_value(get_simulate_transaction_result(
@@ -1634,8 +1642,18 @@ impl Full for SurfpoolFullRpc {
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
             }
-            Ok(TransactionStatusEvent::ExecutionFailure(_)) => {}
+            Ok(TransactionStatusEvent::ExecutionFailure(_)) => {
+                #[cfg(feature = "prometheus")]
+                if let Some(m) = crate::telemetry::metrics() {
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as u64);
+                }
+            }
             Ok(TransactionStatusEvent::VerificationFailure(signature)) => {
+                #[cfg(feature = "prometheus")]
+                if let Some(m) = crate::telemetry::metrics() {
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as u64);
+                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as u64);
+                }
                 return Err(Error {
                     data: None,
                     message: format!("Transaction verification failed for transaction {signature}"),
@@ -1643,13 +1661,29 @@ impl Full for SurfpoolFullRpc {
                 });
             }
             Err(e) => {
+                #[cfg(feature = "prometheus")]
+                if let Some(m) = crate::telemetry::metrics() {
+                    m.record_transaction(false, rpc_start.elapsed().as_millis() as u64);
+                    m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as u64);
+                }
                 return Err(Error {
                     data: None,
                     message: format!("Failed to process transaction: {e}"),
                     code: jsonrpc_core::ErrorCode::ServerError(-32002),
                 });
             }
-            Ok(TransactionStatusEvent::Success(_)) => {}
+            Ok(TransactionStatusEvent::Success(_)) =>
+            {
+                #[cfg(feature = "prometheus")]
+                if let Some(m) = crate::telemetry::metrics() {
+                    m.record_transaction(true, rpc_start.elapsed().as_millis() as u64);
+                }
+            }
+        }
+
+        #[cfg(feature = "prometheus")]
+        if let Some(m) = crate::telemetry::metrics() {
+            m.record_rpc_request("sendTransaction", rpc_start.elapsed().as_millis() as u64);
         }
         Ok(signature.to_string())
     }

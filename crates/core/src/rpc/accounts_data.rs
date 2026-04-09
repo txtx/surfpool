@@ -361,6 +361,8 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Ok(res) => res,
             Err(e) => return e.into(),
         };
+        #[cfg(feature = "prometheus")]
+        let rpc_start = std::time::Instant::now();
 
         let SurfnetRpcContext {
             svm_locker,
@@ -376,6 +378,11 @@ impl AccountsData for SurfpoolAccountsDataRpc {
                 inner: account_update,
                 ..
             } = svm_locker.get_account(&remote_ctx, &pubkey, None).await?;
+
+            #[cfg(feature = "prometheus")]
+            if let Some(m) = crate::telemetry::metrics() {
+                m.record_rpc_request("getAccountInfo", rpc_start.elapsed().as_millis() as u64);
+            }
             svm_locker.write_account_update(account_update.clone());
 
             let ui_account = if let Some(((pubkey, account), token_data)) =
@@ -426,6 +433,9 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             Err(e) => return e.into(),
         };
 
+        #[cfg(feature = "prometheus")]
+        let rpc_start = std::time::Instant::now();
+
         Box::pin(async move {
             let SvmAccessContext {
                 slot,
@@ -434,6 +444,14 @@ impl AccountsData for SurfpoolAccountsDataRpc {
             } = svm_locker
                 .get_multiple_accounts(&remote_ctx, &pubkeys, None)
                 .await?;
+
+            #[cfg(feature = "prometheus")]
+            if let Some(m) = crate::telemetry::metrics() {
+                m.record_rpc_request(
+                    "getMultipleAccounts",
+                    rpc_start.elapsed().as_millis() as u64,
+                );
+            }
 
             svm_locker.write_multiple_account_updates(&account_updates);
 

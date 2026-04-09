@@ -391,7 +391,6 @@ impl SurfnetSvmLocker {
             "Missing accounts will be fetched: {}",
             missing_accounts.iter().join(", ")
         );
-
         // Fetch missing accounts from remote
         let remote_results = client
             .get_multiple_accounts(&missing_accounts, commitment_config)
@@ -1110,6 +1109,7 @@ impl SurfnetSvmLocker {
         self.with_svm_writer(|svm_writer| {
             svm_writer.write_executed_profile_result(signature, profile_result)
         })?;
+
         Ok(())
     }
 

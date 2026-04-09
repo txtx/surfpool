@@ -65,6 +65,7 @@ txtx-addon-network-svm = { workspace = true }
 txtx-core = { workspace = true }
 txtx-gql = { workspace = true }
 txtx-supervisor-ui = { workspace = true, optional = true }
+opentelemetry_sdk = "0.31.0"
 
 [features]
 default = ["cli", "sqlite", "register-tracing"]
@@ -76,6 +77,7 @@ sqlite = ["surfpool-core/sqlite"]
 postgres = ["surfpool-core/postgres"]
 version_check = []
 register-tracing = ["surfpool-core/register-tracing"]
+prometheus = ["surfpool-core/prometheus", "surfpool-types/prometheus"]
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 fork = "0.2.0"
