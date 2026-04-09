@@ -2198,7 +2198,7 @@ impl Full for SurfpoolFullRpc {
 
         Box::pin(async move {
             let signatures = svm_locker
-                .get_signatures_for_address(&remote_ctx, &pubkey, config)
+                .get_signatures_for_address(&remote_ctx, &pubkey, config.as_ref())
                 .await?
                 .inner;
             Ok(signatures)

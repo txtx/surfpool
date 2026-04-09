@@ -409,14 +409,20 @@ impl SurfnetRemoteClient {
     pub async fn get_signatures_for_address(
         &self,
         pubkey: &Pubkey,
-        config: Option<RpcSignaturesForAddressConfig>,
+        config: Option<&RpcSignaturesForAddressConfig>,
     ) -> SurfpoolResult<Vec<RpcConfirmedTransactionStatusWithSignature>> {
         let c = match config {
             Some(c) => GetConfirmedSignaturesForAddress2Config {
-                before: c.before.and_then(|s| Signature::from_str(&s).ok()),
+                before: c
+                    .before
+                    .as_deref()
+                    .and_then(|s| Signature::from_str(&s).ok()),
                 commitment: c.commitment,
                 limit: c.limit,
-                until: c.until.and_then(|s| Signature::from_str(&s).ok()),
+                until: c
+                    .until
+                    .as_deref()
+                    .and_then(|s| Signature::from_str(&s).ok()),
             },
             _ => GetConfirmedSignaturesForAddress2Config::default(),
         };

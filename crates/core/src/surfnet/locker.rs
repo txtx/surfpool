@@ -104,11 +104,11 @@ impl<T> SvmAccessContext<T> {
         &self.inner
     }
 
-    pub fn with_new_value<N>(&self, inner: N) -> SvmAccessContext<N> {
+    pub fn with_new_value<N>(self, inner: N) -> SvmAccessContext<N> {
         SvmAccessContext {
             slot: self.slot,
             latest_blockhash: self.latest_blockhash,
-            latest_epoch_info: self.latest_epoch_info.clone(),
+            latest_epoch_info: self.latest_epoch_info,
             inner,
         }
     }
@@ -215,7 +215,7 @@ impl SurfnetSvmLocker {
         remote_ctx: &Option<SurfnetRemoteClient>,
         do_profile_instructions: bool,
         log_bytes_limit: Option<usize>,
-    ) -> SurfpoolResult<EpochInfo> {
+    ) -> SurfpoolResult<()> {
         let (mut epoch_info, epoch_schedule) = if let Some(remote_client) = remote_ctx {
             let epoch_info = remote_client.get_epoch_info().await?;
             let epoch_schedule = remote_client.get_epoch_schedule().await?;
@@ -236,17 +236,17 @@ impl SurfnetSvmLocker {
         };
         epoch_info.transaction_count = None;
 
-        self.with_svm_writer(|svm_writer| {
+        self.with_svm_writer(move |svm_writer| {
             svm_writer.initialize(
-                epoch_info.clone(),
-                epoch_schedule.clone(),
+                epoch_info,
+                epoch_schedule,
                 slot_time,
                 remote_ctx,
                 do_profile_instructions,
                 log_bytes_limit,
             );
         });
-        Ok(epoch_info)
+        Ok(())
     }
 }
 
@@ -704,7 +704,7 @@ impl SurfnetSvmLocker {
             let remote_non_circulating_pubkeys_result = client
                 .get_largest_accounts(Some(RpcLargestAccountsConfig {
                     filter: Some(RpcLargestAccountsFilter::NonCirculating),
-                    ..config.clone()
+                    ..config
                 }))
                 .await?;
 
@@ -714,7 +714,7 @@ impl SurfnetSvmLocker {
                         let remote_circulating_pubkeys_result = client
                             .get_largest_accounts(Some(RpcLargestAccountsConfig {
                                 filter: Some(RpcLargestAccountsFilter::Circulating),
-                                ..config.clone()
+                                ..config
                             }))
                             .await?;
 
@@ -803,20 +803,15 @@ impl SurfnetSvmLocker {
     pub fn get_signatures_for_address_local(
         &self,
         pubkey: &Pubkey,
-        config: Option<RpcSignaturesForAddressConfig>,
+        config: Option<&RpcSignaturesForAddressConfig>,
     ) -> SvmAccessContext<Vec<RpcConfirmedTransactionStatusWithSignature>> {
-        let RpcSignaturesForAddressConfig {
-            before,
-            until,
-            limit,
-            min_context_slot,
-            ..
-        } = config.unwrap_or_default();
+        let before = config.and_then(|c| c.before.as_ref());
+        let until = config.and_then(|c| c.until.as_ref());
+        let limit = config.and_then(|c| c.limit).unwrap_or(1000);
+        let min_context_slot = config.and_then(|c| c.min_context_slot).unwrap_or_default();
 
         self.with_contextualized_svm_reader(move |svm_reader| {
             let current_slot = svm_reader.get_latest_absolute_slot();
-
-            let limit = limit.unwrap_or(1000);
 
             let sigs: Vec<_> = svm_reader
                 .transactions
@@ -834,7 +829,7 @@ impl SurfnetSvmLocker {
                             .as_processed()
                             .expect("expected processed transaction");
 
-                        if slot < min_context_slot.unwrap_or_default() {
+                        if slot < min_context_slot {
                             return None;
                         }
 
@@ -898,22 +893,22 @@ impl SurfnetSvmLocker {
                 // `before` and `until` are boundaries in the final ordered result stream, not
                 // just slot filters. We compute a [start..end) index range after sorting so
                 // same-slot pagination behaves correctly and `until` stays exclusive.
-                let start = match before.as_deref() {
+                let start = match before {
                     // `before` is exclusive, so we start one item after the boundary when it
                     // exists. If it does not exist locally, the local window is empty.
-                    Some(before) => match sigs.iter().position(|sig| sig.signature == before) {
+                    Some(before) => match sigs.iter().position(|sig| sig.signature.eq(before)) {
                         Some(idx) => idx + 1,
                         None => sigs.len(),
                     },
                     None => 0,
                 };
 
-                let end = match until.as_deref() {
+                let end = match until {
                     // `until` is also exclusive, so the boundary itself is not included. We only
                     // search within `sigs[start..]` so the end boundary is resolved relative to the
                     // already-trimmed start of the window. If it is missing, we keep the full tail.
                     Some(until) => {
-                        match sigs[start..].iter().position(|sig| sig.signature == until) {
+                        match sigs[start..].iter().position(|sig| sig.signature.eq(until)) {
                             Some(offset) => start + offset,
                             None => sigs.len(),
                         }
@@ -932,28 +927,38 @@ impl SurfnetSvmLocker {
         &self,
         client: &SurfnetRemoteClient,
         pubkey: &Pubkey,
-        config: Option<RpcSignaturesForAddressConfig>,
+        config: Option<&RpcSignaturesForAddressConfig>,
     ) -> SurfpoolContextualizedResult<Vec<RpcConfirmedTransactionStatusWithSignature>> {
-        let results = self.get_signatures_for_address_local(pubkey, config.clone());
-        let limit = config.clone().and_then(|c| c.limit).unwrap_or(1000);
+        let results = self.get_signatures_for_address_local(pubkey, config);
+        let limit = config.and_then(|c| c.limit).unwrap_or(1000);
 
-        let mut combined_results = results.inner.clone();
+        let SvmAccessContext {
+            slot,
+            latest_blockhash,
+            latest_epoch_info,
+            inner: mut combined_results,
+        } = results;
         if combined_results.len() < limit {
             let mut remote_results = client.get_signatures_for_address(pubkey, config).await?;
             combined_results.append(&mut remote_results);
         }
 
-        Ok(results.with_new_value(combined_results))
+        Ok(SvmAccessContext::new(
+            slot,
+            latest_epoch_info,
+            latest_blockhash,
+            combined_results,
+        ))
     }
 
     pub async fn get_signatures_for_address(
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, ())>,
         pubkey: &Pubkey,
-        config: Option<RpcSignaturesForAddressConfig>,
+        config: Option<&RpcSignaturesForAddressConfig>,
     ) -> SurfpoolContextualizedResult<Vec<RpcConfirmedTransactionStatusWithSignature>> {
         let results = if let Some((remote_client, _)) = remote_ctx {
-            self.get_signatures_for_address_local_then_remote(remote_client, pubkey, config.clone())
+            self.get_signatures_for_address_local_then_remote(remote_client, pubkey, config)
                 .await?
         } else {
             self.get_signatures_for_address_local(pubkey, config)
@@ -1045,8 +1050,8 @@ impl SurfnetSvmLocker {
         transaction: VersionedTransaction,
         sigverify: bool,
     ) -> Result<SimulatedTransactionInfo, FailedTransactionMetadata> {
-        self.with_svm_reader(|svm_reader| {
-            svm_reader.simulate_transaction(transaction.clone(), sigverify)
+        self.with_svm_reader(move |svm_reader| {
+            svm_reader.simulate_transaction(transaction, sigverify)
         })
     }
 
@@ -1072,7 +1077,7 @@ impl SurfnetSvmLocker {
             .fetch_all_tx_accounts_then_process_tx_returning_profile_res(
                 remote_ctx,
                 transaction,
-                status_tx.clone(),
+                &status_tx,
                 skip_preflight,
                 sigverify,
                 do_propagate_status_updates,
@@ -1129,7 +1134,7 @@ impl SurfnetSvmLocker {
             .fetch_all_tx_accounts_then_process_tx_returning_profile_res(
                 remote_ctx,
                 transaction,
-                status_tx,
+                &status_tx,
                 skip_preflight,
                 sigverify,
                 do_propagate_status_updates,
@@ -1150,7 +1155,7 @@ impl SurfnetSvmLocker {
         &self,
         remote_ctx: &Option<(SurfnetRemoteClient, CommitmentConfig)>,
         transaction: VersionedTransaction,
-        status_tx: Sender<TransactionStatusEvent>,
+        status_tx: &Sender<TransactionStatusEvent>,
         skip_preflight: bool,
         sigverify: bool,
         do_propagate: bool,
@@ -1195,14 +1200,12 @@ impl SurfnetSvmLocker {
 
         // we don't want the pubkeys of the address lookup tables to be included in the transaction accounts,
         // but we do want the pubkeys of the accounts _loaded_ by the ALT to be in the transaction accounts.
-        let transaction_accounts = self
-            .get_pubkeys_from_message(
-                &transaction.message,
-                tx_loaded_addresses
-                    .as_ref()
-                    .map(|l| l.all_loaded_addresses()),
-            )
-            .clone();
+        let transaction_accounts = self.get_pubkeys_from_message(
+            &transaction.message,
+            tx_loaded_addresses
+                .as_ref()
+                .map(|l| l.all_loaded_addresses()),
+        );
         debug!(
             "Transaction {} accounts inputs: {}",
             transaction.get_signature(),
@@ -1247,22 +1250,22 @@ impl SurfnetSvmLocker {
             for update in &account_updates {
                 svm_writer.write_account_update(update.clone());
             }
-            for update in &alt_account_updates {
-                svm_writer.write_account_update(update.clone());
+            for update in alt_account_updates {
+                svm_writer.write_account_update(update);
             }
         });
 
         let pre_execution_capture = {
             let mut capture = ExecutionCapture::new();
-            for account_update in account_updates.iter() {
+            for account_update in account_updates.into_iter() {
                 match account_update {
                     GetAccountResult::None(pubkey) => {
-                        capture.insert(*pubkey, None);
+                        capture.insert(pubkey, None);
                     }
                     GetAccountResult::FoundAccount(pubkey, account, _)
                     | GetAccountResult::FoundProgramAccount((pubkey, account), _)
                     | GetAccountResult::FoundTokenAccount((pubkey, account), _) => {
-                        capture.insert(*pubkey, Some(account.clone()));
+                        capture.insert(pubkey, Some(account));
                     }
                 }
             }
@@ -1550,18 +1553,18 @@ impl SurfnetSvmLocker {
 
         for (pubkey, (before, after)) in pubkeys_from_message
             .iter()
-            .zip(accounts_before.iter().zip(accounts_after.clone()))
+            .zip(accounts_before.iter().zip(accounts_after.iter()))
         {
             if before.ne(&after) {
-                if let Some(after) = &after {
-                    self.with_svm_writer(|svm_writer| {
-                        let _ = svm_writer.update_account_registries(pubkey, after);
-                    });
-                }
                 self.with_svm_writer(|svm_writer| {
-                    let after_account = after.unwrap_or_default();
-                    svm_writer.notify_account_subscribers(pubkey, &after_account);
-                    svm_writer.notify_program_subscribers(pubkey, &after_account);
+                    if let Some(after) = &after {
+                        let _ = svm_writer.update_account_registries(pubkey, after);
+                        svm_writer.notify_account_subscribers(pubkey, &after);
+                        svm_writer.notify_program_subscribers(pubkey, &after);
+                    } else {
+                        svm_writer.notify_account_subscribers(pubkey, &Account::default());
+                        svm_writer.notify_program_subscribers(pubkey, &Account::default());
+                    }
                 });
             }
         }
@@ -1646,7 +1649,7 @@ impl SurfnetSvmLocker {
                     .simnet_events_tx
                     .try_send(SimnetEvent::transaction_processed(
                         meta_canonical,
-                        Some(err.clone()),
+                        Some(err),
                     ));
                 Ok::<(), SurfpoolError>(())
             })?;
@@ -4871,7 +4874,7 @@ mod tests {
     fn fetch_signature_strings(
         locker: &SurfnetSvmLocker,
         pubkey: &Pubkey,
-        config: Option<RpcSignaturesForAddressConfig>,
+        config: Option<&RpcSignaturesForAddressConfig>,
     ) -> Vec<String> {
         locker
             .get_signatures_for_address_local(pubkey, config)
@@ -4917,7 +4920,7 @@ mod tests {
         let sigs = fetch_signature_strings(
             &locker,
             &pubkey,
-            Some(RpcSignaturesForAddressConfig {
+            Some(&RpcSignaturesForAddressConfig {
                 until: Some(sig_b.to_string()),
                 ..RpcSignaturesForAddressConfig::default()
             }),
@@ -4941,7 +4944,7 @@ mod tests {
         let sigs = fetch_signature_strings(
             &locker,
             &pubkey,
-            Some(RpcSignaturesForAddressConfig {
+            Some(&RpcSignaturesForAddressConfig {
                 before: Some(sig_b.to_string()),
                 ..RpcSignaturesForAddressConfig::default()
             }),
@@ -4970,7 +4973,7 @@ mod tests {
         let sigs = fetch_signature_strings(
             &locker,
             &pubkey,
-            Some(RpcSignaturesForAddressConfig {
+            Some(&RpcSignaturesForAddressConfig {
                 before: Some(sig_d.to_string()),
                 until: Some(sig_b.to_string()),
                 ..RpcSignaturesForAddressConfig::default()
@@ -4995,7 +4998,7 @@ mod tests {
         let sigs = fetch_signature_strings(
             &locker,
             &pubkey,
-            Some(RpcSignaturesForAddressConfig {
+            Some(&RpcSignaturesForAddressConfig {
                 before: Some(missing_sig.to_string()),
                 ..RpcSignaturesForAddressConfig::default()
             }),
@@ -5019,7 +5022,7 @@ mod tests {
         let sigs = fetch_signature_strings(
             &locker,
             &pubkey,
-            Some(RpcSignaturesForAddressConfig {
+            Some(&RpcSignaturesForAddressConfig {
                 until: Some(missing_sig.to_string()),
                 ..RpcSignaturesForAddressConfig::default()
             }),
@@ -5049,7 +5052,7 @@ mod tests {
         let sigs = fetch_signature_strings(
             &locker,
             &pubkey,
-            Some(RpcSignaturesForAddressConfig {
+            Some(&RpcSignaturesForAddressConfig {
                 before: Some(sig_e.to_string()),
                 until: Some(sig_a.to_string()),
                 limit: Some(2),
@@ -5083,7 +5086,7 @@ mod tests {
         let sigs = fetch_signature_strings(
             &locker,
             &pubkey,
-            Some(RpcSignaturesForAddressConfig {
+            Some(&RpcSignaturesForAddressConfig {
                 until: Some(sig_s10_b.to_string()),
                 ..RpcSignaturesForAddressConfig::default()
             }),
