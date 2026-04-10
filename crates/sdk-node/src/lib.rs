@@ -269,7 +269,7 @@ impl Surfnet {
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
-    /// Deploy a program by discovering local Anchor/Agave artifacts.
+    /// Deploy a program by discovering local program artifacts.
     #[napi]
     pub fn deploy_program(&self, program_name: String) -> Result<String> {
         self.inner

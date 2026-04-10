@@ -24,11 +24,17 @@
 //!     .unwrap();
 //! # }
 //! ```
-pub mod deploy_program;
-pub mod reset_account;
-pub mod set_account;
-pub mod set_token_account;
-pub mod stream_account;
+mod deploy_program;
+mod reset_account;
+mod set_account;
+mod set_token_account;
+mod stream_account;
+
+pub use deploy_program::DeployProgram;
+pub use reset_account::ResetAccount;
+pub use set_account::SetAccount;
+pub use set_token_account::SetTokenAccount;
+pub use stream_account::StreamAccount;
 
 /// Trait implemented by typed cheatcode builders.
 ///

@@ -39,7 +39,7 @@ mod error;
 pub mod report;
 mod surfnet;
 
-pub use cheatcodes::{Cheatcodes, builders};
+pub use cheatcodes::Cheatcodes;
 pub use error::{SurfnetError, SurfnetResult};
 // Re-export key Solana types for convenience
 pub use solana_keypair::Keypair;
@@ -48,3 +48,5 @@ pub use solana_rpc_client::rpc_client::RpcClient;
 pub use solana_signer::Signer;
 pub use surfnet::{Surfnet, SurfnetBuilder};
 pub use surfpool_types::BlockProductionMode;
+pub use surfpool_types::SimnetCommand;
+pub use surfpool_types::SimnetEvent;

@@ -13,7 +13,7 @@ use spl_associated_token_account_interface::address::get_associated_token_addres
 
 use crate::error::{SurfnetError, SurfnetResult};
 pub mod builders;
-use builders::{CheatcodeBuilder, deploy_program::DeployProgram};
+use builders::{CheatcodeBuilder, DeployProgram};
 
 /// Direct state manipulation helpers for a running Surfnet.
 ///
@@ -153,6 +153,19 @@ impl<'a> Cheatcodes<'a> {
     /// Set the token balance for a wallet/mint pair.
     ///
     /// This is an alias for [`Self::fund_token`].
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::{Pubkey, Surfnet};
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    /// let owner = Pubkey::new_unique();
+    /// let mint = Pubkey::new_unique();
+    ///
+    /// cheats.set_token_balance(&owner, &mint, 5_000, None).unwrap();
+    /// # }
+    /// ```
     pub fn set_token_balance(
         &self,
         owner: &Pubkey,
@@ -184,6 +197,21 @@ impl<'a> Cheatcodes<'a> {
     }
 
     /// Fund multiple accounts with SOL using repeated `surfnet_setAccount` calls.
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::{Pubkey, Surfnet};
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    /// let alice = Pubkey::new_unique();
+    /// let bob = Pubkey::new_unique();
+    ///
+    /// cheats
+    ///     .fund_sol_many(&[(&alice, 1_000_000), (&bob, 2_000_000)])
+    ///     .unwrap();
+    /// # }
+    /// ```
     pub fn fund_sol_many(&self, accounts: &[(&Pubkey, u64)]) -> SurfnetResult<()> {
         for (address, lamports) in accounts {
             self.fund_sol(address, *lamports)?;
@@ -192,6 +220,22 @@ impl<'a> Cheatcodes<'a> {
     }
 
     /// Fund multiple wallets with the same token and amount.
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::{Pubkey, Surfnet};
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    /// let alice = Pubkey::new_unique();
+    /// let bob = Pubkey::new_unique();
+    /// let mint = Pubkey::new_unique();
+    ///
+    /// cheats
+    ///     .fund_token_many(&[&alice, &bob], &mint, 1_000, None)
+    ///     .unwrap();
+    /// # }
+    /// ```
     pub fn fund_token_many(
         &self,
         owners: &[&Pubkey],
@@ -206,16 +250,52 @@ impl<'a> Cheatcodes<'a> {
     }
 
     /// Move Surfnet time forward to an absolute epoch.
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::Surfnet;
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    ///
+    /// let epoch_info = cheats.time_travel_to_epoch(10).unwrap();
+    /// assert!(epoch_info.epoch >= 10);
+    /// # }
+    /// ```
     pub fn time_travel_to_epoch(&self, epoch: u64) -> SurfnetResult<EpochInfo> {
         self.time_travel(serde_json::json!([{ "absoluteEpoch": epoch }]))
     }
 
     /// Move Surfnet time forward to an absolute slot.
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::Surfnet;
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    ///
+    /// let epoch_info = cheats.time_travel_to_slot(1_000).unwrap();
+    /// assert!(epoch_info.absolute_slot >= 1_000);
+    /// # }
+    /// ```
     pub fn time_travel_to_slot(&self, slot: u64) -> SurfnetResult<EpochInfo> {
         self.time_travel(serde_json::json!([{ "absoluteSlot": slot }]))
     }
 
     /// Move Surfnet time forward to an absolute Unix timestamp in milliseconds.
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::Surfnet;
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    ///
+    /// let epoch_info = cheats.time_travel_to_timestamp(1_700_000_000_000).unwrap();
+    /// assert!(epoch_info.absolute_slot > 0);
+    /// # }
+    /// ```
     pub fn time_travel_to_timestamp(&self, timestamp: u64) -> SurfnetResult<EpochInfo> {
         self.time_travel(serde_json::json!([{ "absoluteTimestamp": timestamp }]))
     }
@@ -228,6 +308,18 @@ impl<'a> Cheatcodes<'a> {
     /// - `target/idl/{program_name}.json` (optional)
     ///
     /// If an IDL file exists, it is registered after the program bytes are written.
+    ///
+    /// ```rust,no_run
+    /// use surfpool_sdk::Surfnet;
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    ///
+    /// let program_id = cheats.deploy_program("my_program").unwrap();
+    /// println!("{program_id}");
+    /// # }
+    /// ```
     pub fn deploy_program(&self, program_name: &str) -> SurfnetResult<Pubkey> {
         let target_dir = resolve_target_dir(program_name)?;
         let deploy_dir = target_dir.join("deploy");
@@ -247,6 +339,27 @@ impl<'a> Cheatcodes<'a> {
     ///
     /// This writes the program bytes with `surfnet_writeProgram` and, when present,
     /// registers the parsed IDL with `surfnet_registerIdl`.
+    ///
+    /// ```rust,ignore
+    /// use surfpool_sdk::{Pubkey, Surfnet};
+    /// use surfpool_sdk::builders::deploy_program::DeployProgram;
+    ///
+    /// # async fn example() {
+    /// let surfnet = Surfnet::start().await.unwrap();
+    /// let cheats = surfnet.cheatcodes();
+    /// let program_id = Pubkey::new_unique();
+    ///
+    /// let deployed_program = cheats
+    ///     .deploy(
+    ///         DeployProgram::new(program_id)
+    ///             .so_path("target/deploy/my_program.so")
+    ///             .idl_path("target/idl/my_program.json"),
+    ///     )
+    ///     .unwrap();
+    ///
+    /// assert_eq!(deployed_program, program_id);
+    /// # }
+    /// ```
     pub fn deploy(&self, builder: DeployProgram) -> SurfnetResult<Pubkey> {
         let program_id = builder.program_id();
         let program_bytes = builder.load_so_bytes()?;
