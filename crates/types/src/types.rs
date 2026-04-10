@@ -971,6 +971,16 @@ pub enum DataIndexingCommand {
     ProcessCollectionEntriesPack(Uuid, Vec<u8>),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct JitoBundleStatus {
+    pub bundle_id: String,
+    pub transactions: Vec<String>,
+    pub slot: u64,
+    pub confirmation_status: solana_transaction_status::TransactionConfirmationStatus,
+    pub err: std::result::Result<(), TransactionError>,
+}
+
 // Define a wrapper struct
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VersionedIdl(pub Slot, pub Idl);

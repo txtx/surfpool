@@ -984,6 +984,23 @@ impl SurfnetSvmLocker {
         }
     }
 
+    /// Stores a bundle's signatures under the given bundle ID.
+    pub fn store_bundle(&self, bundle_id: String, signatures: Vec<String>) -> SurfpoolResult<()> {
+        self.with_svm_writer(|svm_writer| svm_writer.jito_bundles.store(bundle_id, signatures))?;
+        Ok(())
+    }
+
+    /// Retrieves the list of transaction signatures for a previously stored bundle.
+    ///
+    /// Returns `None` when there is no local entry for `bundle_id` (or the backing store read fails).
+    /// This is not an "invalid id" signal: callers such as Jito `getBundleStatuses` treat `None` as
+    /// “no data” and return a null RPC result rather than an error.
+    pub fn get_bundle(&self, bundle_id: String) -> Option<Vec<String>> {
+        self.with_svm_reader(|svm_reader| {
+            svm_reader.jito_bundles.get(&bundle_id).unwrap_or_default()
+        })
+    }
+
     /// Retrieves a transaction from local cache, returning a contextualized result.
     pub fn get_transaction_local(
         &self,
