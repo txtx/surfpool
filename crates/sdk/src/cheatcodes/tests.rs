@@ -1,24 +1,23 @@
-use solana_program_pack::Pack;
-use solana_signer::Signer;
-use solana_pubkey::Pubkey;
-use solana_rpc_client::rpc_client::RpcClient;
-use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
-use spl_token_interface::state::{Account as TokenAccount, Mint};
 use std::{
     fs,
     sync::{Mutex, MutexGuard, OnceLock},
 };
+
+use solana_program_pack::Pack;
+use solana_pubkey::Pubkey;
+use solana_rpc_client::rpc_client::RpcClient;
+use solana_signer::Signer;
+use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
+use spl_token_interface::state::{Account as TokenAccount, Mint};
 use tempfile::tempdir;
 
 use super::{
     Cheatcodes,
     builders::{
-        deploy_program::DeployProgram,
-        reset_account::ResetAccount, set_account::SetAccount, set_token_account::SetTokenAccount,
-        stream_account::StreamAccount,
+        deploy_program::DeployProgram, reset_account::ResetAccount, set_account::SetAccount,
+        set_token_account::SetTokenAccount, stream_account::StreamAccount,
     },
-    resolve_target_dir,
-    spl_token_program_id,
+    resolve_target_dir, spl_token_program_id,
 };
 use crate::{Surfnet, error::SurfnetResult};
 
@@ -249,7 +248,9 @@ async fn time_travel_to_timestamp_executes_against_surfnet() {
         .as_millis() as u64
         + 5_000;
 
-    let after = cheats.time_travel_to_timestamp(target_timestamp_ms).unwrap();
+    let after = cheats
+        .time_travel_to_timestamp(target_timestamp_ms)
+        .unwrap();
     assert!(after.absolute_slot > before.absolute_slot);
 }
 
@@ -355,7 +356,11 @@ async fn deploy_program_discovers_workspace_artifacts() {
 
     fs::create_dir_all(&deploy_dir).unwrap();
     fs::create_dir_all(&idl_dir).unwrap();
-    fs::write(deploy_dir.join(format!("{program_name}.so")), vec![9, 8, 7, 6]).unwrap();
+    fs::write(
+        deploy_dir.join(format!("{program_name}.so")),
+        vec![9, 8, 7, 6],
+    )
+    .unwrap();
     fs::write(
         deploy_dir.join(format!("{program_name}-keypair.json")),
         serde_json::to_vec(&keypair.to_bytes().to_vec()).unwrap(),

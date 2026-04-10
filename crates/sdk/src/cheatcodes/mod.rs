@@ -1,3 +1,8 @@
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
+
 use solana_client::rpc_request::RpcRequest;
 use solana_epoch_info::EpochInfo;
 use solana_keypair::{EncodableKey, Keypair};
@@ -5,15 +10,10 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
-use std::{
-    env,
-    path::{Path, PathBuf},
-};
 
 use crate::error::{SurfnetError, SurfnetResult};
 pub mod builders;
-use builders::deploy_program::DeployProgram;
-use builders::CheatcodeBuilder;
+use builders::{CheatcodeBuilder, deploy_program::DeployProgram};
 
 /// Direct state manipulation helpers for a running Surfnet.
 ///

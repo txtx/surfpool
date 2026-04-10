@@ -25,9 +25,9 @@
 //! # }
 //! ```
 pub mod deploy_program;
+pub mod reset_account;
 pub mod set_account;
 pub mod set_token_account;
-pub mod reset_account;
 pub mod stream_account;
 
 /// Trait implemented by typed cheatcode builders.
