@@ -48,7 +48,7 @@
     "build:debug": "npm run build:native:debug && npm run build:ts",
     "build:native": "napi build --platform --release surfpool-sdk --dts internal.d.ts --js internal.js",
     "build:native:debug": "napi build --platform surfpool-sdk --dts internal.d.ts --js internal.js",
-    "build:ts": "tsc",
+    "build:ts": "tsc && node ./scripts/sync-dist.js",
     "create-npm-dir": "napi create-npm-dir -t .",
     "artifacts": "napi artifacts",
     "pack:dry-run": "npm pack --dry-run",
