@@ -10,6 +10,7 @@ const DEFAULT_RELEASE_ASSET: &str = "surfpool-report-viewer.zip";
 const OUTPUT_DIR_NAME: &str = "surfpool-report-viewer";
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(rust_analyzer)");
     println!("cargo:rerun-if-env-changed=SURFPOOL_REPORT_UI_DIR");
     println!("cargo:rerun-if-env-changed=SURFPOOL_REPORT_UI_URL");
     println!("cargo:rerun-if-env-changed=SURFPOOL_WEB_UI_VERSION");
