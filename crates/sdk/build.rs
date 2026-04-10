@@ -12,10 +12,14 @@ const OUTPUT_DIR_NAME: &str = "surfpool-report-viewer";
 fn main() {
     println!("cargo:rerun-if-env-changed=SURFPOOL_REPORT_UI_DIR");
     println!("cargo:rerun-if-env-changed=SURFPOOL_REPORT_UI_URL");
+    println!("cargo:rerun-if-env-changed=SURFPOOL_WEB_UI_VERSION");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
     let asset_dir = out_dir.join(OUTPUT_DIR_NAME);
-    println!("cargo:warning=surfpool-sdk: preparing embedded report viewer at {}", asset_dir.display());
+    println!(
+        "cargo:warning=surfpool-sdk: preparing embedded report viewer at {}",
+        asset_dir.display()
+    );
 
     if asset_dir.exists() {
         fs::remove_dir_all(&asset_dir).expect("failed to clear existing report viewer assets");
@@ -25,21 +29,70 @@ fn main() {
     if let Ok(dir) = env::var("SURFPOOL_REPORT_UI_DIR") {
         println!("cargo:warning=surfpool-sdk: using local report viewer dist from {dir}");
         copy_local_dist(Path::new(&dir), &asset_dir);
-        println!("cargo:warning=surfpool-sdk: embedded local report viewer into {}", asset_dir.display());
+        println!(
+            "cargo:warning=surfpool-sdk: embedded local report viewer into {}",
+            asset_dir.display()
+        );
         return;
     }
 
     let source_url = env::var("SURFPOOL_REPORT_UI_URL").unwrap_or_else(|_| default_release_url());
     println!("cargo:warning=surfpool-sdk: downloading report viewer from {source_url}");
     download_and_extract_release(&source_url, &asset_dir);
-    println!("cargo:warning=surfpool-sdk: embedded downloaded report viewer into {}", asset_dir.display());
+    println!(
+        "cargo:warning=surfpool-sdk: embedded downloaded report viewer into {}",
+        asset_dir.display()
+    );
 }
 
 fn default_release_url() -> String {
-    let version = env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION not set");
+    let version = match env::var("SURFPOOL_WEB_UI_VERSION") {
+        Ok(version) => format!("v{version}"),
+        Err(env::VarError::NotPresent) => latest_release_tag(),
+        Err(env::VarError::NotUnicode(_)) => {
+            panic!("SURFPOOL_WEB_UI_VERSION must be a valid UTF-8 string if set")
+        }
+    };
     format!(
-        "https://github.com/{DEFAULT_RELEASE_OWNER}/{DEFAULT_RELEASE_REPO}/releases/download/v{version}/{DEFAULT_RELEASE_ASSET}"
+        "https://github.com/{DEFAULT_RELEASE_OWNER}/{DEFAULT_RELEASE_REPO}/releases/download/{version}/{DEFAULT_RELEASE_ASSET}"
     )
+}
+
+fn latest_release_tag() -> String {
+    #[derive(serde::Deserialize)]
+    struct LatestReleaseResponse {
+        tag_name: String,
+    }
+
+    let url = format!(
+        "https://api.github.com/repos/{DEFAULT_RELEASE_OWNER}/{DEFAULT_RELEASE_REPO}/releases/latest"
+    );
+    let response = reqwest::blocking::Client::new()
+        .get(&url)
+        .header(
+            reqwest::header::USER_AGENT,
+            "surfpool-sdk-report-viewer-build (github.com/solana-foundation/surfpool)",
+        )
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .unwrap_or_else(|error| {
+            panic!("failed to fetch latest report viewer release from {url}: {error}")
+        })
+        .error_for_status()
+        .unwrap_or_else(|error| {
+            panic!("failed to resolve latest report viewer release from {url}: {error}")
+        });
+
+    let latest_release = response
+        .json::<LatestReleaseResponse>()
+        .unwrap_or_else(|error| {
+            panic!("failed to parse latest report viewer release response from {url}: {error}")
+        });
+    println!(
+        "cargo:warning=surfpool-sdk: resolved latest report viewer release tag {}",
+        latest_release.tag_name
+    );
+    latest_release.tag_name
 }
 
 fn copy_local_dist(source_dir: &Path, output_dir: &Path) {

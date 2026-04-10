@@ -38,7 +38,8 @@ surfpool-core = { workspace = true }
 surfpool-types = { workspace = true }
 
 [build-dependencies]
-reqwest = { workspace = true, features = ["blocking", "default-tls"] }
+reqwest = { workspace = true, features = ["blocking", "default-tls", "json"] }
+serde = { workspace = true, features = ["derive"] }
 zip = { workspace = true }
 
 [dev-dependencies]
