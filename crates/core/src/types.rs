@@ -1227,6 +1227,7 @@ pub enum TimeTravelError {
     PastSlot { target: u64, current: u64 },
     PastEpoch { target: u64, current: u64 },
     ZeroSlotTime,
+    ZeroSlotsInEpoch,
 }
 
 impl std::fmt::Display for TimeTravelError {
@@ -1255,6 +1256,9 @@ impl std::fmt::Display for TimeTravelError {
             }
             TimeTravelError::ZeroSlotTime => {
                 write!(f, "Cannot calculate time travel with zero slot time")
+            }
+            TimeTravelError::ZeroSlotsInEpoch => {
+                write!(f, "Cannot calculate time travel with zero slots in epoch")
             }
         }
     }
