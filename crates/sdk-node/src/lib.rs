@@ -271,11 +271,12 @@ impl Surfnet {
 
     /// Deploy a program by discovering local Anchor/Agave artifacts.
     #[napi]
-    pub fn deploy_program(&self, program_name: String) -> Result<()> {
+    pub fn deploy_program(&self, program_name: String) -> Result<String> {
         self.inner
             .cheatcodes()
             .deploy_program(&program_name)
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+            .map(|program_id| program_id.to_string())
     }
 
     /// Get the associated token address for a wallet/mint pair.

@@ -6,7 +6,12 @@ import {
   SolAccountFunding,
 } from "./internal";
 
-export { SurfnetConfig, KeypairInfo, EpochInfoValue, SolAccountFunding } from "./internal";
+export {
+  SurfnetConfig,
+  KeypairInfo,
+  EpochInfoValue,
+  SolAccountFunding,
+} from "./internal";
 
 /**
  * A running Surfpool instance with RPC/WS endpoints on dynamic ports.
@@ -75,7 +80,7 @@ export class Surfnet {
     owner: string,
     mint: string,
     amount: number,
-    tokenProgram?: string
+    tokenProgram?: string,
   ): void {
     this.inner.fundToken(owner, mint, amount, tokenProgram ?? null);
   }
@@ -85,7 +90,7 @@ export class Surfnet {
     owner: string,
     mint: string,
     amount: number,
-    tokenProgram?: string
+    tokenProgram?: string,
   ): void {
     this.inner.setTokenBalance(owner, mint, amount, tokenProgram ?? null);
   }
@@ -95,7 +100,7 @@ export class Surfnet {
     owners: string[],
     mint: string,
     amount: number,
-    tokenProgram?: string
+    tokenProgram?: string,
   ): void {
     this.inner.fundTokenMany(owners, mint, amount, tokenProgram ?? null);
   }
@@ -105,7 +110,7 @@ export class Surfnet {
     address: string,
     lamports: number,
     data: Uint8Array,
-    owner: string
+    owner: string,
   ): void {
     this.inner.setAccount(address, lamports, Array.from(data), owner);
   }
@@ -126,8 +131,8 @@ export class Surfnet {
   }
 
   /** Deploy a program by discovering local Anchor/Agave artifacts. */
-  deployProgram(programName: string): void {
-    this.inner.deployProgram(programName);
+  deployProgram(programName: string): string {
+    return this.inner.deployProgram(programName);
   }
 
   /** Get the associated token address for a wallet/mint pair. */
