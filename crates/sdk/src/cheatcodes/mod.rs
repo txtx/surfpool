@@ -225,7 +225,7 @@ impl<'a> Cheatcodes<'a> {
     /// - `target/idl/{program_name}.json` (optional)
     ///
     /// If an IDL file exists, it is registered after the program bytes are written.
-    pub fn deploy_program(&self, program_name: &str) -> SurfnetResult<()> {
+    pub fn deploy_program(&self, program_name: &str) -> SurfnetResult<Pubkey> {
         let deploy_dir = PathBuf::from("target/deploy");
         let idl_dir = PathBuf::from("target/idl");
         let so_path = deploy_dir.join(format!("{program_name}.so"));
@@ -243,7 +243,7 @@ impl<'a> Cheatcodes<'a> {
     ///
     /// This writes the program bytes with `surfnet_writeProgram` and, when present,
     /// registers the parsed IDL with `surfnet_registerIdl`.
-    pub fn deploy(&self, builder: DeployProgram) -> SurfnetResult<()> {
+    pub fn deploy(&self, builder: DeployProgram) -> SurfnetResult<Pubkey> {
         let program_id = builder.program_id();
         let program_bytes = builder.load_so_bytes()?;
         self.write_program(&program_id, &program_bytes)?;
@@ -253,7 +253,7 @@ impl<'a> Cheatcodes<'a> {
             self.register_idl(&idl)?;
         }
 
-        Ok(())
+        Ok(program_id)
     }
 
     /// Execute a typed cheatcode builder.
