@@ -30,7 +30,7 @@ Install from source:
 
 ```console
 # Clone repo
-git clone https://github.com/txtx/surfpool.git
+git clone https://github.com/solana-foundation/surfpool.git
 
 # Set repo as current directory
 cd surfpool
@@ -54,7 +54,7 @@ Additionally, the [Visual Studio Code extension](https://marketplace.visualstudi
 Our [Surfpool 101 Series](https://www.youtube.com/playlist?list=PL0FMgRjJMRzO1FdunpMS-aUS4GNkgyr3T) is also a great place to start learning about Surfpool and its features:
 <a href="https://www.youtube.com/playlist?list=PL0FMgRjJMRzO1FdunpMS-aUS4GNkgyr3T">
   <picture>
-    <source srcset="https://raw.githubusercontent.com/txtx/surfpool/main/doc/assets/youtube.png">
+    <source srcset="https://raw.githubusercontent.com/solana-foundation/surfpool/main/doc/assets/youtube.png">
     <img alt="Surfpool 101 series" style="max-width: 100%;">
   </picture>
 </a>

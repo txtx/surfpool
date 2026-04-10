@@ -44,6 +44,6 @@ The following steps can be followed to natively support a protocol:
    ![Pyth Overrides](../../../..//doc/assets/pyth-overrides.png)
  4. Update the [registry.rs](./registry.rs) file. A small amount of code has to be written to wire together the template registry, the `overrides.yaml`, and the `idl.json`. See the `load_pyth_overrides` and `load_jupiter_overrides` functions for examples.
 
-If any part of these instructions are beyond your skill level or availability, but you'd like to see a specific protocol supported, feel free to [Open an Issue to Support a new Protocol](https://github.com/txtx/surfpool/issues/new?template=native-scenario-support-for-protocol.md)!
+If any part of these instructions are beyond your skill level or availability, but you'd like to see a specific protocol supported, feel free to [Open an Issue to Support a new Protocol](https://github.com/solana-foundation/surfpool/issues/new?template=native-scenario-support-for-protocol.md)!
 Opening an issue to signal interest is a big help.
 If you're able to find an IDL for the protocol, even better!

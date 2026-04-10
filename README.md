@@ -1,7 +1,7 @@
 <div align="center">
   <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/txtx/surfpool/main/doc/assets/surfpool-github-hero-dark.png">
-      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/txtx/surfpool/main/doc/assets/surfpool-github-hero-light.png">
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/solana-foundation/surfpool/main/doc/assets/surfpool-github-hero-dark.png">
+      <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/solana-foundation/surfpool/main/doc/assets/surfpool-github-hero-light.png">
       <img alt="Surfpool is the best place to train before surfing Solana" style="max-width: 60%;">
   </picture>
 </div>
@@ -18,7 +18,7 @@ It’s built local-first and offline-ready, so you can spin up networks on your 
 
 <a href="https://www.youtube.com/playlist?list=PL0FMgRjJMRzO1FdunpMS-aUS4GNkgyr3T">
   <picture>
-    <source srcset="https://raw.githubusercontent.com/txtx/surfpool/main/doc/assets/youtube.png">
+    <source srcset="https://raw.githubusercontent.com/solana-foundation/surfpool/main/doc/assets/youtube.png">
     <img alt="Surfpool 101 series" style="max-width: 100%;">
   </picture>
 </a>
@@ -68,7 +68,7 @@ Install from source:
 
 ```console
 # Clone repo
-git clone https://github.com/txtx/surfpool.git
+git clone https://github.com/solana-foundation/surfpool.git
 
 # Set repo as current directory
 cd surfpool
@@ -147,7 +147,7 @@ Surfpool is built on the low-level solana-svm API, utilizing the excellent LiteS
 
 We are actively developing Surfpool and welcome contributions from the community. If you'd like to get involved, here’s how:
 
-- Explore and contribute to open issues: [GitHub Issues](https://github.com/txtx/surfpool/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22help%20wanted%22)
+- Explore and contribute to open issues: [GitHub Issues](https://github.com/solana-foundation/surfpool/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22help%20wanted%22)
 
 - Join the discussion on [Discord](https://discord.gg/rqXmWsn2ja)
 

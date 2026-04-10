@@ -14,7 +14,7 @@ case "$OS" in
 esac
 
 PRODUCT="surfpool"
-GITHUB_REPO="txtx/surfpool"
+GITHUB_REPO="solana-foundation/surfpool"
 VERSION="${VERSION:-latest}"
 if [[ "$VERSION" == "latest" ]]; then
   BASE_URL="https://github.com/${GITHUB_REPO}/releases/latest/download"
