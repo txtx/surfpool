@@ -22,7 +22,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  SURFPOOL_REPORT_UI_DIR: ${{ github.workspace }}/surfpool-web-ui/apps/report-viewer/dist
 
 jobs:
   validate:
@@ -53,12 +52,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Checkout report viewer repository
-        uses: actions/checkout@v4
-        with:
-          repository: solana-foundation/surfpool-web-ui
-          path: surfpool-web-ui
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -83,14 +76,6 @@ jobs:
       - name: Install npm dependencies
         working-directory: crates/sdk-node
         run: npm ci
-
-      - name: Install report viewer dependencies
-        working-directory: surfpool-web-ui
-        run: pnpm install --frozen-lockfile
-
-      - name: Build report viewer
-        working-directory: surfpool-web-ui
-        run: pnpm --filter @surfpool/report-viewer build
 
       - name: Run sdk tests
         if: matrix.run_sdk_tests
