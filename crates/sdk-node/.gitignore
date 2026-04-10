@@ -1,0 +1,6 @@
+surfpool-sdk.*.node
+node_modules/
+dist/
+artifacts/
+npm/
+*.tgz

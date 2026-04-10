@@ -1,0 +1,149 @@
+name: SDK Node
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/sdk_node.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/sdk/**"
+      - "crates/sdk-node/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/sdk_node.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/sdk/**"
+      - "crates/sdk-node/**"
+
+env:
+  CARGO_TERM_COLOR: always
+  SURFPOOL_WEB_UI_VERSION: 0.2.0-alpha.0
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-22.04
+            run_sdk_tests: true
+            platform_dir: linux-x64-gnu
+          - name: macos-x64
+            os: macos-latest
+            run_sdk_tests: false
+            platform_dir: darwin-x64
+          - name: macos-arm64
+            os: macos-latest
+            run_sdk_tests: false
+            platform_dir: darwin-arm64
+
+    steps:
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev clang libclang-dev
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crates/sdk-node/package-lock.json
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
+      - name: Install npm dependencies
+        working-directory: crates/sdk-node
+        run: npm ci
+
+      - name: Run sdk tests
+        if: matrix.run_sdk_tests
+        run: cargo test -p surfpool-sdk
+
+      - name: Build sdk-node crate
+        run: cargo build -p surfpool-sdk-node --release
+
+      - name: Build npm package
+        working-directory: crates/sdk-node
+        run: npm run build
+
+      - name: Smoke test local package
+        working-directory: crates/sdk-node
+        run: npm run smoke
+
+      - name: Create npm platform package directories
+        working-directory: crates/sdk-node
+        run: npm run create-npm-dir
+
+      - name: Stage host binary for npm packaging
+        working-directory: crates/sdk-node
+        shell: bash
+        run: |
+          rm -rf artifacts
+          mkdir -p artifacts/local
+          cp surfpool-sdk/surfpool-sdk.*.node artifacts/local/
+
+      - name: Copy artifacts into npm platform packages
+        working-directory: crates/sdk-node
+        run: npm run artifacts
+
+      - name: Pack root and platform tarballs
+        id: pack
+        working-directory: crates/sdk-node
+        shell: bash
+        run: |
+          ROOT_PACK=$(NPM_CONFIG_CACHE=$(mktemp -d) npm pack --json | node -e 'let data = ""; process.stdin.on("data", (chunk) => data += chunk); process.stdin.on("end", () => console.log(JSON.parse(data)[0].filename));')
+          PLATFORM_PACK=$(cd "npm/${{ matrix.platform_dir }}" && NPM_CONFIG_CACHE=$(mktemp -d) npm pack --json | node -e 'let data = ""; process.stdin.on("data", (chunk) => data += chunk); process.stdin.on("end", () => console.log(JSON.parse(data)[0].filename));')
+          echo "root_pack=${ROOT_PACK}" >> "$GITHUB_OUTPUT"
+          echo "platform_pack=npm/${{ matrix.platform_dir }}/${PLATFORM_PACK}" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test packed npm install
+        working-directory: crates/sdk-node
+        shell: bash
+        run: |
+          TMP_DIR=$(mktemp -d)
+          cp "${{ steps.pack.outputs.root_pack }}" "${TMP_DIR}/"
+          cp "${{ steps.pack.outputs.platform_pack }}" "${TMP_DIR}/"
+          cd "${TMP_DIR}"
+          npm init -y
+          npm install "./$(basename "${{ steps.pack.outputs.platform_pack }}")"
+          npm install "./$(basename "${{ steps.pack.outputs.root_pack }}")"
+          node - <<'EOF'
+          const assert = require("node:assert/strict");
+          const { Surfnet } = require("surfpool-sdk");
+
+          const keypair = Surfnet.newKeypair();
+          assert.equal(keypair.secretKey.length, 64);
+
+          const surfnet = Surfnet.startWithConfig({
+            offline: true,
+            blockProductionMode: "manual",
+            report: false,
+            testName: "sdk-node-packed-smoke",
+          });
+
+          assert.match(surfnet.rpcUrl, /^http:\/\//);
+          assert.match(surfnet.wsUrl, /^ws:\/\//);
+          EOF

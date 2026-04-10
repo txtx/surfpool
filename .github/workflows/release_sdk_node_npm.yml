@@ -1,0 +1,222 @@
+name: Publish SDK Node Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (do not actually publish to npm)"
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  SURFPOOL_WEB_UI_VERSION: 0.2.0-alpha.0
+
+jobs:
+  prepare_release:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      should_publish: ${{ steps.package.outputs.should_publish }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Read package version
+        id: package
+        working-directory: crates/sdk-node
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          if npm view "surfpool-sdk@${VERSION}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "surfpool-sdk@${VERSION} is already published"
+          else
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "surfpool-sdk@${VERSION} is ready to publish"
+          fi
+
+  build_artifacts:
+    name: Build (${{ matrix.name }})
+    needs: prepare_release
+    if: needs.prepare_release.outputs.should_publish == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-22.04
+            upload_metadata: true
+            platform_dir: linux-x64-gnu
+          - name: macos-x64
+            os: macos-latest
+            upload_metadata: false
+            platform_dir: darwin-x64
+          - name: macos-arm64
+            os: macos-latest
+            upload_metadata: false
+            platform_dir: darwin-arm64
+
+    steps:
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev clang libclang-dev
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crates/sdk-node/package-lock.json
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
+      - name: Install npm dependencies
+        working-directory: crates/sdk-node
+        run: npm ci
+
+      - name: Build npm package
+        working-directory: crates/sdk-node
+        run: npm run build
+
+      - name: Smoke test package
+        working-directory: crates/sdk-node
+        run: npm run smoke
+
+      - name: Upload native binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-node-${{ matrix.name }}-binary
+          path: crates/sdk-node/surfpool-sdk.*.node
+          if-no-files-found: error
+
+      - name: Upload package metadata
+        if: matrix.upload_metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-node-package-metadata
+          path: |
+            crates/sdk-node/surfpool-sdk/internal.js
+            crates/sdk-node/surfpool-sdk/internal.d.ts
+          if-no-files-found: error
+
+  publish:
+    name: Publish To npm
+    needs:
+      - prepare_release
+      - build_artifacts
+    if: needs.prepare_release.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - name: Install Linux dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev clang libclang-dev
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: crates/sdk-node/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: crates/sdk-node
+        run: npm ci
+
+      - name: Download native binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sdk-node-*-binary
+          path: crates/sdk-node/artifacts
+
+      - name: Download package metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: sdk-node-package-metadata
+          path: crates/sdk-node/surfpool-sdk
+
+      - name: Create npm platform package directories
+        working-directory: crates/sdk-node
+        run: npm run create-npm-dir
+
+      - name: Copy artifacts into npm platform packages
+        working-directory: crates/sdk-node
+        run: npm run artifacts
+
+      - name: Build TypeScript wrapper
+        working-directory: crates/sdk-node
+        run: npm run build:ts
+
+      - name: Pack root npm tarball
+        working-directory: crates/sdk-node
+        run: NPM_CONFIG_CACHE=$(mktemp -d) npm pack --dry-run
+
+      - name: Pack platform npm tarballs
+        working-directory: crates/sdk-node
+        run: |
+          cd npm/darwin-x64 && NPM_CONFIG_CACHE=$(mktemp -d) npm pack --dry-run
+          cd ../darwin-arm64 && NPM_CONFIG_CACHE=$(mktemp -d) npm pack --dry-run
+          cd ../linux-x64-gnu && NPM_CONFIG_CACHE=$(mktemp -d) npm pack --dry-run
+
+      - name: Publish platform packages
+        if: inputs.dry_run != true
+        working-directory: crates/sdk-node
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx napi prepublish -t npm --skip-gh-release
+
+      - name: Dry run platform publish
+        if: inputs.dry_run == true
+        working-directory: crates/sdk-node
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx napi prepublish -t npm --skip-gh-release --dry-run
+
+      - name: Publish root package
+        if: inputs.dry_run != true
+        working-directory: crates/sdk-node
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
+
+      - name: Dry run root publish
+        if: inputs.dry_run == true
+        working-directory: crates/sdk-node
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --dry-run --access public
