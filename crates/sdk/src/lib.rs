@@ -34,7 +34,7 @@
 //! generate(SurfpoolReportOptions::default()).unwrap();
 //! ```
 
-mod cheatcodes;
+pub mod cheatcodes;
 mod error;
 pub mod report;
 mod surfnet;

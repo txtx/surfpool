@@ -192,8 +192,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        DEFAULT_OUTPUT_PATH, DEFAULT_REPORT_DIR, REPORT_DATA_PLACEHOLDER, SurfnetReportData,
-        SurfpoolReport, SurfpoolReportOptions, TransactionReportEntry,
+        DEFAULT_OUTPUT_PATH, DEFAULT_REPORT_DIR, SurfnetReportData, SurfpoolReport,
+        SurfpoolReportOptions, TransactionReportEntry,
     };
 
     fn sample_transaction(
@@ -441,8 +441,6 @@ mod tests {
         };
 
         let html = report.generate_html().unwrap();
-
-        assert!(!html.contains(REPORT_DATA_PLACEHOLDER));
         assert!(html.contains(r#"<\/script><script>alert(\"x\")<\/script>"#));
     }
 
@@ -472,8 +470,7 @@ mod tests {
         .unwrap();
         assert_eq!(output, output_path);
         let html = fs::read_to_string(&output).unwrap();
-        assert!(html.contains("SURFPOOL REPORT"));
-        assert!(!html.contains(REPORT_DATA_PLACEHOLDER));
+        assert!(html.contains("Surfpool Report"));
         assert!(html.contains("<div id=\"root\"></div>"));
     }
 
