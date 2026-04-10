@@ -17,6 +17,7 @@ use super::{
         reset_account::ResetAccount, set_account::SetAccount, set_token_account::SetTokenAccount,
         stream_account::StreamAccount,
     },
+    resolve_target_dir,
     spl_token_program_id,
 };
 use crate::{Surfnet, error::SurfnetResult};
@@ -386,4 +387,32 @@ fn get_ata_matches_associated_token_derivation() {
         get_associated_token_address_with_program_id(&owner, &mint, &spl_token_program_id());
 
     assert_eq!(derived, expected);
+}
+
+#[test]
+fn resolve_target_dir_walks_up_to_project_root_target() {
+    let temp = tempdir().unwrap();
+    let previous_dir = std::env::current_dir().unwrap();
+    let nested_crate_dir = temp.path().join("programs/simple-pda/tests");
+    let deploy_dir = temp.path().join("target/deploy");
+    let keypair = crate::Keypair::new();
+    let program_name = "simple_pda";
+
+    fs::create_dir_all(&nested_crate_dir).unwrap();
+    fs::create_dir_all(&deploy_dir).unwrap();
+    fs::write(deploy_dir.join(format!("{program_name}.so")), vec![1, 2, 3]).unwrap();
+    fs::write(
+        deploy_dir.join(format!("{program_name}-keypair.json")),
+        serde_json::to_vec(&keypair.to_bytes().to_vec()).unwrap(),
+    )
+    .unwrap();
+
+    std::env::set_current_dir(&nested_crate_dir).unwrap();
+    let result = resolve_target_dir(program_name);
+    std::env::set_current_dir(previous_dir).unwrap();
+
+    assert_eq!(
+        result.unwrap().canonicalize().unwrap(),
+        temp.path().join("target").canonicalize().unwrap()
+    );
 }

@@ -5,12 +5,15 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
-use std::path::{Path, PathBuf};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 use crate::error::{SurfnetError, SurfnetResult};
 pub mod builders;
-use builders::CheatcodeBuilder;
 use builders::deploy_program::DeployProgram;
+use builders::CheatcodeBuilder;
 
 /// Direct state manipulation helpers for a running Surfnet.
 ///
@@ -226,8 +229,9 @@ impl<'a> Cheatcodes<'a> {
     ///
     /// If an IDL file exists, it is registered after the program bytes are written.
     pub fn deploy_program(&self, program_name: &str) -> SurfnetResult<Pubkey> {
-        let deploy_dir = PathBuf::from("target/deploy");
-        let idl_dir = PathBuf::from("target/idl");
+        let target_dir = resolve_target_dir(program_name)?;
+        let deploy_dir = target_dir.join("deploy");
+        let idl_dir = target_dir.join("idl");
         let so_path = deploy_dir.join(format!("{program_name}.so"));
         let keypair_path = deploy_dir.join(format!("{program_name}-keypair.json"));
         let idl_path = idl_dir.join(format!("{program_name}.json"));
@@ -336,6 +340,42 @@ fn read_keypair_pubkey(path: &Path) -> SurfnetResult<Pubkey> {
                 path.display()
             ))
         })
+}
+
+fn resolve_target_dir(program_name: &str) -> SurfnetResult<PathBuf> {
+    if let Ok(explicit_target_dir) = env::var("CARGO_TARGET_DIR") {
+        let target_dir = PathBuf::from(explicit_target_dir);
+        if has_program_artifacts(&target_dir, program_name) {
+            return Ok(target_dir);
+        }
+    }
+
+    let current_dir = env::current_dir().map_err(|e| {
+        SurfnetError::Cheatcode(format!("failed to resolve current working directory: {e}"))
+    })?;
+
+    for ancestor in current_dir.ancestors() {
+        let target_dir = ancestor.join("target");
+        if has_program_artifacts(&target_dir, program_name) {
+            return Ok(target_dir);
+        }
+    }
+
+    Err(SurfnetError::Cheatcode(format!(
+        "failed to locate target/deploy artifacts for program `{program_name}` starting from {}",
+        current_dir.display()
+    )))
+}
+
+fn has_program_artifacts(target_dir: &Path, program_name: &str) -> bool {
+    target_dir
+        .join("deploy")
+        .join(format!("{program_name}.so"))
+        .exists()
+        && target_dir
+            .join("deploy")
+            .join(format!("{program_name}-keypair.json"))
+            .exists()
 }
 
 #[cfg(test)]
