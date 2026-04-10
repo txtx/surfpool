@@ -38,10 +38,15 @@ pub fn calculate_absolute_timestamp_clock(
     if slot_time == 0 {
         return Err(TimeTravelError::ZeroSlotTime);
     }
+    if epoch_info.slots_in_epoch == 0 {
+        return Err(TimeTravelError::ZeroSlotsInEpoch);
+    }
 
     let time_jump_in_ms = timestamp_target - current_updated_at;
     let time_jump_in_absolute_slots = time_jump_in_ms / slot_time;
-    let remaining_slots_for_current_epoch = epoch_info.slots_in_epoch - epoch_info.slot_index;
+    let remaining_slots_for_current_epoch = epoch_info
+        .slots_in_epoch
+        .saturating_sub(epoch_info.slot_index);
 
     let time_jump_in_epochs = if time_jump_in_absolute_slots >= remaining_slots_for_current_epoch {
         (time_jump_in_absolute_slots - remaining_slots_for_current_epoch)
