@@ -575,7 +575,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                             SimnetEvent::Ready(_) => {}
                             SimnetEvent::Connected(_) => {}
                             SimnetEvent::Shutdown => {
-                                break;
+                                return Ok(());
                             }
                             SimnetEvent::TaggedProfile {
                                 result,
