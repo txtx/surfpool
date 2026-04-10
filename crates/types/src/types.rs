@@ -129,6 +129,8 @@ impl SubgraphEvent {
 }
 
 /// Result structure for compute units estimation.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ComputeUnitsEstimationResult {
@@ -241,9 +243,12 @@ pub enum AccountChange {
     Unchanged(Option<Account>),
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcProfileResultConfig {
+    #[cfg_attr(feature = "ts", ts(as = "Option<String>"))]
     pub encoding: Option<UiAccountEncoding>,
     pub depth: Option<RpcProfileDepth>,
 }
@@ -257,6 +262,8 @@ impl Default for RpcProfileResultConfig {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RpcProfileDepth {
@@ -265,22 +272,29 @@ pub enum RpcProfileDepth {
     Instruction,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UiKeyedProfileResult {
     pub slot: u64,
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub key: UuidOrSignature,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instruction_profiles: Option<Vec<UiProfileResult>>,
     pub transaction_profile: UiProfileResult,
     #[serde(with = "profile_state_map")]
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub readonly_account_states: IndexMap<Pubkey, UiAccount>,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UiProfileResult {
     #[serde(with = "profile_state_map")]
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, UiAccountProfileState>"))]
     pub account_states: IndexMap<Pubkey, UiAccountProfileState>,
     pub compute_units_consumed: u64,
     pub log_messages: Option<Vec<String>>,
@@ -304,6 +318,61 @@ pub enum UiAccountChange {
     /// The account didn't change. If [Some], this is the initial state. If [None], the account didn't exist before/after execution.
     Unchanged(Option<UiAccount>),
 }
+
+#[cfg(feature = "ts")]
+const _: () = {
+    use ts_rs::{Config, TS, TypeVisitor};
+
+    impl TS for UiAccountChange {
+        type WithoutGenerics = Self;
+        type OptionInnerType = Self;
+        const IS_ENUM: bool = true;
+
+        fn name(_: &Config) -> String {
+            "UiAccountChange".to_owned()
+        }
+        fn decl(_: &Config) -> String {
+            "type UiAccountChange = { type: 'create'; data: unknown } | { type: 'update'; data: [unknown, unknown] } | { type: 'delete'; data: unknown } | { type: 'unchanged'; data: unknown | null };".to_owned()
+        }
+        fn decl_concrete(cfg: &Config) -> String {
+            Self::decl(cfg)
+        }
+        fn inline(_: &Config) -> String {
+            "UiAccountChange".to_owned()
+        }
+        fn output_path() -> Option<std::path::PathBuf> {
+            Some(std::path::PathBuf::from("UiAccountChange.ts"))
+        }
+    }
+
+    impl TS for UiAccountProfileState {
+        type WithoutGenerics = Self;
+        type OptionInnerType = Self;
+        const IS_ENUM: bool = true;
+
+        fn name(_: &Config) -> String {
+            "UiAccountProfileState".to_owned()
+        }
+        fn decl(_: &Config) -> String {
+            "type UiAccountProfileState = { type: 'readonly' } | { type: 'writable'; accountChange: UiAccountChange };".to_owned()
+        }
+        fn decl_concrete(cfg: &Config) -> String {
+            Self::decl(cfg)
+        }
+        fn inline(_: &Config) -> String {
+            "UiAccountProfileState".to_owned()
+        }
+        fn visit_dependencies(v: &mut impl TypeVisitor)
+        where
+            Self: 'static,
+        {
+            v.visit::<UiAccountChange>();
+        }
+        fn output_path() -> Option<std::path::PathBuf> {
+            Some(std::path::PathBuf::from("UiAccountProfileState.ts"))
+        }
+    }
+};
 
 /// P starts with 300 lamports
 /// Ix 1 Transfers 100 lamports to P
@@ -825,6 +894,8 @@ impl DeleteNetworkRequest {
 #[derive(Serialize, Deserialize)]
 pub struct DeleteNetworkResponse;
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[serde_as]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -833,6 +904,7 @@ pub struct AccountUpdate {
     pub lamports: Option<u64>,
     /// providing this value sets the data held in this account
     #[serde_as(as = "Option<BytesOrString>")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<String>"))]
     pub data: Option<Vec<u8>>,
     ///  providing this value sets the program that owns this account. If executable, the program that loads this account.
     pub owner: Option<String>,
@@ -842,6 +914,8 @@ pub struct AccountUpdate {
     pub rent_epoch: Option<Epoch>,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, type = "string | null"))]
 #[derive(Debug, Clone)]
 pub enum SetSomeAccount {
     Account(String),
@@ -889,6 +963,8 @@ impl Serialize for SetSomeAccount {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[serde_as]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -896,16 +972,20 @@ pub struct TokenAccountUpdate {
     /// providing this value sets the amount of the token in the account data
     pub amount: Option<u64>,
     /// providing this value sets the delegate of the token account
+    #[cfg_attr(feature = "ts", ts(as = "Option<SetSomeAccount>"))]
     pub delegate: Option<SetSomeAccount>,
     /// providing this value sets the state of the token account
     pub state: Option<String>,
     /// providing this value sets the amount authorized to the delegate
     pub delegated_amount: Option<u64>,
     /// providing this value sets the close authority of the token account
+    #[cfg_attr(feature = "ts", ts(as = "Option<SetSomeAccount>"))]
     pub close_authority: Option<SetSomeAccount>,
 }
 
 // token supply update for set supply method in SVM tricks
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct SupplyUpdate {
     pub total: Option<u64>,
@@ -914,6 +994,8 @@ pub struct SupplyUpdate {
     pub non_circulating_accounts: Option<Vec<String>>,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, type = "string"))]
 #[derive(Clone, Debug, PartialEq, Copy)]
 pub enum UuidOrSignature {
     Uuid(Uuid),
@@ -1074,6 +1156,8 @@ impl<K: std::hash::Hash + Eq, V> FifoMap<K, V> {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountSnapshot {
@@ -1084,6 +1168,7 @@ pub struct AccountSnapshot {
     /// Base64 encoded data
     pub data: String,
     /// Parsed account data if available
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub parsed_data: Option<ParsedAccount>,
 }
 
@@ -1107,6 +1192,8 @@ impl AccountSnapshot {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportSnapshotConfig {
@@ -1115,6 +1202,8 @@ pub struct ExportSnapshotConfig {
     pub scope: ExportSnapshotScope,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ExportSnapshotScope {
@@ -1123,6 +1212,8 @@ pub enum ExportSnapshotScope {
     PreTransaction(String),
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportSnapshotFilter {
@@ -1131,6 +1222,8 @@ pub struct ExportSnapshotFilter {
     pub exclude_accounts: Option<Vec<String>>,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResetAccountConfig {
@@ -1145,6 +1238,8 @@ impl Default for ResetAccountConfig {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StreamAccountConfig {
@@ -1159,6 +1254,8 @@ impl Default for StreamAccountConfig {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OfflineAccountConfig {
@@ -1173,6 +1270,8 @@ impl Default for OfflineAccountConfig {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StreamedAccountInfo {
@@ -1180,6 +1279,8 @@ pub struct StreamedAccountInfo {
     pub include_owned_accounts: bool,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetSurfnetInfoResponse {
@@ -1191,6 +1292,8 @@ impl GetSurfnetInfoResponse {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetStreamedAccountsResponse {
@@ -1212,6 +1315,8 @@ impl GetStreamedAccountsResponse {
     }
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunbookExecutionStatusReport {
@@ -1242,11 +1347,15 @@ pub struct CheatcodeConfig {
     pub filter: CheatcodeFilter,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, optional_fields))]
 #[derive(Serialize, Deserialize, Default)]
 pub struct CheatcodeControlConfig {
     pub lockout: Option<bool>,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CheatcodeFilter {
@@ -1793,5 +1902,20 @@ mod tests {
             ..Default::default()
         };
         assert!(config.get_sanitized_datasource_url().is_none());
+    }
+
+    #[cfg(feature = "ts")]
+    mod ts_exports {
+        use ts_rs::TS;
+
+        #[test]
+        fn export_bindings_uiaccountchange() {
+            super::super::UiAccountChange::export_all(&Default::default()).unwrap();
+        }
+
+        #[test]
+        fn export_bindings_uiaccountprofilestate() {
+            super::super::UiAccountProfileState::export_all(&Default::default()).unwrap();
+        }
     }
 }

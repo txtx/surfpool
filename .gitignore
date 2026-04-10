@@ -12,3 +12,11 @@ test-ledger
 
 # local
 txtx.yml
+
+# npm
+**/node_modules/
+bun.lockb
+
+# ts-rs generated bindings
+crates/types/bindings/
+crates/core/bindings/
