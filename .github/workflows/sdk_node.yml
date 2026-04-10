@@ -36,11 +36,11 @@ jobs:
             run_sdk_tests: true
             platform_dir: linux-x64-gnu
           - name: macos-x64
-            os: macos-13
+            os: macos-latest
             run_sdk_tests: false
             platform_dir: darwin-x64
           - name: macos-arm64
-            os: macos-14
+            os: macos-latest
             run_sdk_tests: false
             platform_dir: darwin-arm64
 
