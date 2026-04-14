@@ -1216,10 +1216,29 @@ impl SurfnetSvm {
     ) -> SurfpoolResult<()> {
         let is_deleted_account = account == &Account::default();
 
-        self.sync_account_in_db(pubkey, account, is_deleted_account)?;
+        // Mirror the SVM state into the backing database. The inner SVM is
+        // already up to date by the time this function runs; the database is
+        // the side-effect target.
+        if is_deleted_account {
+            self.inner.delete_account_in_db(pubkey)?;
+        } else {
+            self.inner
+                .set_account_in_db(*pubkey, account.clone().into())?;
+        }
 
         if is_deleted_account {
-            self.mark_account_offline_and_unindex(pubkey)?;
+            // Record the account as offline so the surfnet does not re-fetch
+            // it from the upstream RPC, then drop any stale index entries
+            // that pointed at its prior on-chain state.
+            self.offline_accounts.store(
+                pubkey.to_string(),
+                OfflineAccountConfig {
+                    include_owned_accounts: false,
+                },
+            )?;
+            if let Some(old_account) = self.get_account(pubkey)? {
+                self.remove_from_indexes(pubkey, &old_account)?;
+            }
             return Ok(());
         }
 
@@ -1241,40 +1260,6 @@ impl SurfnetSvm {
             self.index_token_account_variant(pubkey, &pubkey_str, account)?;
             self.index_mint_account_variant(pubkey, account)?;
             self.index_token_2022_mint_extensions(pubkey, account)?;
-        }
-        Ok(())
-    }
-
-    /// Mirror a post-transaction account update from the inner SVM into the
-    /// backing database. The SVM already reflects the new state; only the
-    /// database needs the side-effect.
-    fn sync_account_in_db(
-        &mut self,
-        pubkey: &Pubkey,
-        account: &Account,
-        is_deleted: bool,
-    ) -> SurfpoolResult<()> {
-        if is_deleted {
-            self.inner.delete_account_in_db(pubkey)?;
-        } else {
-            self.inner
-                .set_account_in_db(*pubkey, account.clone().into())?;
-        }
-        Ok(())
-    }
-
-    /// Record that an account is now offline (so the surfnet knows not to
-    /// re-fetch it from the upstream RPC) and drop any stale index entries
-    /// for its prior on-chain state.
-    fn mark_account_offline_and_unindex(&mut self, pubkey: &Pubkey) -> SurfpoolResult<()> {
-        self.offline_accounts.store(
-            pubkey.to_string(),
-            OfflineAccountConfig {
-                include_owned_accounts: false,
-            },
-        )?;
-        if let Some(old_account) = self.get_account(pubkey)? {
-            self.remove_from_indexes(pubkey, &old_account)?;
         }
         Ok(())
     }
