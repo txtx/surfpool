@@ -522,9 +522,6 @@ enum RunbookExecutionMode {
     /// `bin_path` injection) or `--anchor-compat` without an existing
     /// `txtx.yml`. Requires framework detection.
     InMemory,
-    /// `--anchor-compat` set AND `txtx.yml` exists: the original code fell
-    /// through without setting either data pointer. Preserved as-is.
-    Neither,
 }
 
 impl RunbookExecutionMode {
@@ -533,9 +530,9 @@ impl RunbookExecutionMode {
             // `--artifacts-path` always wins: the custom bin_path has to be
             // injected, which only the in-memory runbook can do.
             (true, _, _) => Self::InMemory,
+            // An on-disk `txtx.yml` is authoritative regardless of `--anchor-compat`.
+            (false, _, true) => Self::ExistingOnDisk,
             (false, true, false) => Self::InMemory,
-            (false, true, true) => Self::Neither,
-            (false, false, true) => Self::ExistingOnDisk,
             (false, false, false) => Self::ScaffoldOnDisk,
         }
     }
@@ -622,7 +619,7 @@ async fn write_and_execute_iac(
                         cmd.artifacts_path.as_deref(),
                     )?);
                 }
-                RunbookExecutionMode::ExistingOnDisk | RunbookExecutionMode::Neither => {}
+                RunbookExecutionMode::ExistingOnDisk => {}
             }
         }
 
