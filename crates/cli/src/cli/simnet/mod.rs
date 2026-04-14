@@ -532,45 +532,6 @@ enum RunbookExecutionMode {
 }
 
 impl RunbookExecutionMode {
-    /// Truth table proving equivalence with the pre-refactor boolean form.
-    ///
-    /// Predicates:
-    /// - `H` = `has_custom_artifacts_path` (i.e. `cmd.artifacts_path.is_some()`)
-    /// - `A` = `anchor_compat`
-    /// - `T` = `txtx_exists`
-    ///
-    /// Pre-refactor action tuple, derived from the three compound booleans
-    /// that used to live at lines ~528, ~531, and ~571 of this function
-    /// (see `git show d262afe^`):
-    /// - `on_disk_pre` = `!H && !A && T`          (on-disk pointer set before framework detection)
-    /// - `do_scaffold` = `!H && !A && !T`         (scaffold-on-disk after framework detection; also sets the on-disk pointer)
-    /// - `do_in_mem`   = `H || (A && !T)`         (in-memory runbook after framework detection)
-    ///
-    /// Post-refactor action tuple, driven by the variant this function returns
-    /// and the downstream `match mode`:
-    /// - `ExistingOnDisk`:  `(on_disk_pre=1, do_scaffold=0, do_in_mem=0)`
-    /// - `ScaffoldOnDisk`:  `(on_disk_pre=0, do_scaffold=1, do_in_mem=0)`  (note: `do_scaffold` also writes the on-disk pointer, separately from `on_disk_pre`)
-    /// - `InMemory`:        `(on_disk_pre=0, do_scaffold=0, do_in_mem=1)`
-    /// - `Neither`:         `(on_disk_pre=0, do_scaffold=0, do_in_mem=0)`
-    ///
-    /// Row-by-row equivalence:
-    ///
-    /// | H | A | T | pre-refactor (on_disk_pre, do_scaffold, do_in_mem) | variant          | post-refactor tuple |
-    /// |---|---|---|-----------------------------------------------------|------------------|---------------------|
-    /// | 0 | 0 | 0 | (0, 1, 0)                                           | `ScaffoldOnDisk` | (0, 1, 0) ✓         |
-    /// | 0 | 0 | 1 | (1, 0, 0)                                           | `ExistingOnDisk` | (1, 0, 0) ✓         |
-    /// | 0 | 1 | 0 | (0, 0, 1)                                           | `InMemory`       | (0, 0, 1) ✓         |
-    /// | 0 | 1 | 1 | (0, 0, 0)                                           | `Neither`        | (0, 0, 0) ✓         |
-    /// | 1 | 0 | 0 | (0, 0, 1)                                           | `InMemory`       | (0, 0, 1) ✓         |
-    /// | 1 | 0 | 1 | (0, 0, 1)                                           | `InMemory`       | (0, 0, 1) ✓         |
-    /// | 1 | 1 | 0 | (0, 0, 1)                                           | `InMemory`       | (0, 0, 1) ✓         |
-    /// | 1 | 1 | 1 | (0, 0, 1)                                           | `InMemory`       | (0, 0, 1) ✓         |
-    ///
-    /// All eight rows agree: the refactor is equivalent for every input
-    /// combination. The row worth staring at is `(0, 1, 1)`: both forms
-    /// produce the all-zero tuple, which means neither runbook path runs.
-    /// Whether that is a bug or intentional is a separate question (preserved
-    /// here, flagged as `Neither`).
     fn from_inputs(has_custom_artifacts_path: bool, anchor_compat: bool, txtx_exists: bool) -> Self {
         match (has_custom_artifacts_path, anchor_compat, txtx_exists) {
             // `--artifacts-path` always wins: the custom bin_path has to be
