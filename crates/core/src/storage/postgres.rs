@@ -6,14 +6,20 @@ use std::{
 use log::debug;
 use serde::{Deserialize, Serialize};
 use surfpool_db::diesel::{
-    self, QueryableByName, RunQueryDsl,
+    self, RunQueryDsl,
     connection::SimpleConnection,
     r2d2::{ConnectionManager, Pool},
     sql_query,
     sql_types::Text,
 };
 
-use crate::storage::{Storage, StorageConstructor, StorageError, StorageResult};
+use crate::storage::{
+    Storage, StorageConstructor, StorageError, StorageResult,
+    diesel_common::{
+        CountRecord, KeyRecord, KvRecord, ValueRecord, deserialize_value, serialize_key,
+        serialize_value,
+    },
+};
 
 /// Global shared connection pools keyed by database URL.
 /// This allows multiple PostgresStorage instances to share the same pool,
@@ -49,32 +55,6 @@ fn get_or_create_shared_pool(
 
     pools_guard.insert(database_url.to_string(), pool.clone());
     Ok(pool)
-}
-
-#[derive(QueryableByName, Debug)]
-struct KvRecord {
-    #[diesel(sql_type = Text)]
-    key: String,
-    #[diesel(sql_type = Text)]
-    value: String,
-}
-
-#[derive(QueryableByName, Debug)]
-struct ValueRecord {
-    #[diesel(sql_type = Text)]
-    value: String,
-}
-
-#[derive(QueryableByName, Debug)]
-struct KeyRecord {
-    #[diesel(sql_type = Text)]
-    key: String,
-}
-
-#[derive(QueryableByName, Debug)]
-struct CountRecord {
-    #[diesel(sql_type = diesel::sql_types::BigInt)]
-    count: i64,
 }
 
 #[derive(Clone)]
@@ -118,43 +98,6 @@ where
         Ok(())
     }
 
-    fn serialize_key(&self, key: &K) -> StorageResult<String> {
-        trace!("Serializing key for table '{}'", self.table_name);
-        let result =
-            serde_json::to_string(key).map_err(|e| StorageError::SerializeKeyError(NAME.into(), e));
-        if let Ok(ref serialized) = result {
-            trace!("Key serialized successfully: {}", serialized);
-        }
-        result
-    }
-
-    fn serialize_value(&self, value: &V) -> StorageResult<String> {
-        trace!("Serializing value for table '{}'", self.table_name);
-        let result = serde_json::to_string(value)
-            .map_err(|e| StorageError::SerializeValueError(NAME.into(), e));
-        if let Ok(ref serialized) = result {
-            trace!(
-                "Value serialized successfully, length: {} chars",
-                serialized.len()
-            );
-        }
-        result
-    }
-
-    fn deserialize_value(&self, value_str: &str) -> StorageResult<V> {
-        trace!(
-            "Deserializing value from table '{}', input length: {} chars",
-            self.table_name,
-            value_str.len()
-        );
-        let result = serde_json::from_str(value_str)
-            .map_err(|e| StorageError::DeserializeValueError(NAME.into(), e));
-        if result.is_ok() {
-            trace!("Value deserialized successfully");
-        }
-        result
-    }
-
     fn load_value_from_db(&self, key_str: &str) -> StorageResult<Option<V>> {
         debug!("Loading value from DB for key: {}", key_str);
         let query = sql_query(format!(
@@ -173,7 +116,7 @@ where
 
         if let Some(record) = records.into_iter().next() {
             debug!("Found record for key: {}", key_str);
-            let value = self.deserialize_value(&record.value)?;
+            let value = deserialize_value(NAME, &self.table_name, &record.value)?;
             Ok(Some(value))
         } else {
             debug!("No record found for key: {}", key_str);
@@ -189,8 +132,8 @@ where
 {
     fn store(&mut self, key: K, value: V) -> StorageResult<()> {
         debug!("Storing value in table '{}", self.table_name);
-        let key_str = self.serialize_key(&key)?;
-        let value_str = self.serialize_value(&value)?;
+        let key_str = serialize_key(NAME, &self.table_name, &key)?;
+        let value_str = serialize_value(NAME, &self.table_name, &value)?;
 
         // Use PostgreSQL UPSERT syntax with ON CONFLICT
         let query = sql_query(format!(
@@ -217,14 +160,14 @@ where
 
     fn get(&self, key: &K) -> StorageResult<Option<V>> {
         debug!("Getting value from table '{}", self.table_name);
-        let key_str = self.serialize_key(key)?;
+        let key_str = serialize_key(NAME, &self.table_name, key)?;
 
         self.load_value_from_db(&key_str)
     }
 
     fn take(&mut self, key: &K) -> StorageResult<Option<V>> {
         debug!("Taking value from table '{}'", self.table_name);
-        let key_str = self.serialize_key(key)?;
+        let key_str = serialize_key(NAME, &self.table_name, key)?;
 
         // If not in cache, try to load from database
         if let Some(value) = self.load_value_from_db(&key_str)? {

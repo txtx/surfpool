@@ -1,3 +1,5 @@
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+mod diesel_common;
 mod fifo_map;
 mod hash_map;
 mod overlay;
