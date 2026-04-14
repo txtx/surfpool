@@ -181,6 +181,30 @@ where
         .map(|output| (wire_output, output))
 }
 
+/// Decode the RPC `data` parameter of `sendTransaction` and
+/// `simulateTransaction` into a `solana_transaction::VersionedTransaction`.
+///
+/// Both methods accept a `UiTransactionEncoding` on their config that defaults
+/// to `Base58`, map it to the internal `TransactionBinaryEncoding`, and feed
+/// the result into `decode_and_deserialize`. The mapping can fail (the RPC
+/// only accepts base58 and base64), which is reported back as an
+/// `Error::invalid_params` listing the supported encodings.
+pub fn decode_rpc_versioned_transaction(
+    data: String,
+    encoding: Option<UiTransactionEncoding>,
+) -> Result<solana_transaction::versioned::VersionedTransaction> {
+    let tx_encoding = encoding.unwrap_or(UiTransactionEncoding::Base58);
+    let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
+        Error::invalid_params(format!(
+            "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
+        ))
+    })?;
+    let (_, unsanitized_tx) = decode_and_deserialize::<
+        solana_transaction::versioned::VersionedTransaction,
+    >(data, binary_encoding)?;
+    Ok(unsanitized_tx)
+}
+
 pub fn transform_tx_metadata_to_ui_accounts(
     meta: TransactionMetadata,
     message: &VersionedMessage,
@@ -218,22 +242,31 @@ pub fn transform_tx_metadata_to_ui_accounts(
         .collect()
 }
 
+/// Substrings that, when present in a lowercased error message, indicate the
+/// remote RPC method is not supported by the upstream (often a public endpoint
+/// that has gated methods behind a 410 Gone response or a custom refusal).
+const METHOD_NOT_SUPPORTED_NEEDLES: &[&str] = &[
+    "not supported",
+    "unsupported",
+    "unavailable",
+    "method blocked",
+    "invalid request",
+    "is blocked",
+    "if you need this method",
+    "client error 410",
+    "410 gone",
+    "(410 gone)",
+    " status 410",
+    "http 410",
+    "client error (410",
+];
+
 /// Returns true if the error indicates the remote method is not supported.
 pub fn is_method_not_supported_error<E: std::fmt::Display>(err: &E) -> bool {
     let msg = err.to_string().to_lowercase();
-    msg.contains("not supported")
-        || msg.contains("unsupported")
-        || msg.contains("unavailable")
-        || msg.contains("method blocked")
-        || msg.contains("invalid request")
-        || msg.contains("is blocked")
-        || msg.contains("if you need this method")
-        || msg.contains("client error 410")
-        || msg.contains("410 gone")
-        || msg.contains("(410 gone)")
-        || msg.contains(" status 410")
-        || msg.contains("http 410")
-        || msg.contains("client error (410")
+    METHOD_NOT_SUPPORTED_NEEDLES
+        .iter()
+        .any(|needle| msg.contains(needle))
 }
 
 pub fn get_default_transaction_config() -> RpcTransactionConfig {

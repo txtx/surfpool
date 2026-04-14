@@ -295,6 +295,46 @@ pub struct SurfnetSvm {
     pub last_checkpoint_slot: u64,
 }
 
+/// Add `pubkey_str` to the pubkey-list at `key`, creating the entry when absent
+/// and deduplicating on insert. The shared-pubkey indexes (`accounts_by_owner`,
+/// `token_accounts_by_owner`, `token_accounts_by_mint`,
+/// `token_accounts_by_delegate`) map one pubkey-string to the list of account
+/// pubkey-strings that share the indexed trait; the `contains` guard prevents
+/// double-registration when `update_account_registries` is called on an
+/// unchanged account.
+fn add_pubkey_to_index(
+    index: &mut Box<dyn Storage<String, Vec<String>>>,
+    key: String,
+    pubkey_str: &str,
+) -> SurfpoolResult<()> {
+    let mut accounts = index.get(&key).ok().flatten().unwrap_or_default();
+    if !accounts.iter().any(|pk| pk == pubkey_str) {
+        accounts.push(pubkey_str.to_string());
+        index.store(key, accounts)?;
+    }
+    Ok(())
+}
+
+/// Remove `pubkey_str` from the pubkey-list at `key`. When the list becomes
+/// empty the entry is taken rather than stored, so downstream `keys()`
+/// iterations don't surface empty buckets.
+fn remove_pubkey_from_index(
+    index: &mut Box<dyn Storage<String, Vec<String>>>,
+    key: &str,
+    pubkey_str: &str,
+) -> SurfpoolResult<()> {
+    let key_owned = key.to_string();
+    if let Some(mut accounts) = index.get(&key_owned).ok().flatten() {
+        accounts.retain(|pk| pk != pubkey_str);
+        if accounts.is_empty() {
+            index.take(&key_owned)?;
+        } else {
+            index.store(key_owned, accounts)?;
+        }
+    }
+    Ok(())
+}
+
 impl SurfnetSvm {
     pub fn default() -> (Self, Receiver<SimnetEvent>, Receiver<GeyserEvent>) {
         Self::new(None, "0").unwrap()
@@ -1176,18 +1216,20 @@ impl SurfnetSvm {
     ) -> SurfpoolResult<()> {
         let is_deleted_account = account == &Account::default();
 
-        // When this function is called after processing a transaction, the account is already updated
-        // in the inner SVM. However, the database hasn't been updated yet, so we need to manually update the db.
+        // Mirror the SVM state into the backing database. The inner SVM is
+        // already up to date by the time this function runs; the database is
+        // the side-effect target.
         if is_deleted_account {
-            // This amounts to deleting the account from the db if the account is deleted in the SVM
             self.inner.delete_account_in_db(pubkey)?;
         } else {
-            // Or updating the db account to match the SVM account if not deleted
             self.inner
                 .set_account_in_db(*pubkey, account.clone().into())?;
         }
 
         if is_deleted_account {
+            // Record the account as offline so the surfnet does not re-fetch
+            // it from the upstream RPC, then drop any stale index entries
+            // that pointed at its prior on-chain state.
             self.offline_accounts.store(
                 pubkey.to_string(),
                 OfflineAccountConfig {
@@ -1200,100 +1242,111 @@ impl SurfnetSvm {
             return Ok(());
         }
 
-        // only update our indexes if the account exists in the svm accounts db
+        // Drop any stale owner/mint/delegate entries for the prior version of
+        // the account before indexing the new one; otherwise a change of
+        // owner would leave the old owner's bucket pointing at `pubkey`.
         if let Some(old_account) = self.get_account(pubkey)? {
             self.remove_from_indexes(pubkey, &old_account)?;
         }
-        // add to owner index (check for duplicates)
-        let owner_key = account.owner.to_string();
+
         let pubkey_str = pubkey.to_string();
-        let mut owner_accounts = self
-            .accounts_by_owner
-            .get(&owner_key)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        if !owner_accounts.contains(&pubkey_str) {
-            owner_accounts.push(pubkey_str.clone());
-            self.accounts_by_owner.store(owner_key, owner_accounts)?;
-        }
+        add_pubkey_to_index(
+            &mut self.accounts_by_owner,
+            account.owner.to_string(),
+            &pubkey_str,
+        )?;
 
-        // if it's a token account, update token-specific indexes
         if is_supported_token_program(&account.owner) {
-            if let Ok(token_account) = TokenAccount::unpack(&account.data) {
-                // index by owner -> check for duplicates
-                let owner_key = token_account.owner().to_string();
-                let mut token_owner_accounts = self
-                    .token_accounts_by_owner
-                    .get(&owner_key)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default();
-                if !token_owner_accounts.contains(&pubkey_str) {
-                    token_owner_accounts.push(pubkey_str.clone());
-                    self.token_accounts_by_owner
-                        .store(owner_key, token_owner_accounts)?;
-                }
-
-                // index by mint -> check for duplicates
-                let mint_key = token_account.mint().to_string();
-                let mut mint_accounts = self
-                    .token_accounts_by_mint
-                    .get(&mint_key)
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default();
-                if !mint_accounts.contains(&pubkey_str) {
-                    mint_accounts.push(pubkey_str.clone());
-                    self.token_accounts_by_mint.store(mint_key, mint_accounts)?;
-                }
-
-                if let COption::Some(delegate) = token_account.delegate() {
-                    let delegate_key = delegate.to_string();
-                    let mut delegate_accounts = self
-                        .token_accounts_by_delegate
-                        .get(&delegate_key)
-                        .ok()
-                        .flatten()
-                        .unwrap_or_default();
-                    if !delegate_accounts.contains(&pubkey_str) {
-                        delegate_accounts.push(pubkey_str);
-                        self.token_accounts_by_delegate
-                            .store(delegate_key, delegate_accounts)?;
-                    }
-                }
-                self.token_accounts
-                    .store(pubkey.to_string(), token_account)?;
-            }
-
-            if let Ok(mint_account) = MintAccount::unpack(&account.data) {
-                self.token_mints.store(pubkey.to_string(), mint_account)?;
-            }
-
-            if let Ok(mint) =
-                StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(&account.data)
-            {
-                let unix_timestamp = self.inner.get_sysvar::<Clock>().unix_timestamp;
-                let interest_bearing_config = mint
-                    .get_extension::<InterestBearingConfig>()
-                    .map(|x| (*x, unix_timestamp))
-                    .ok();
-                let scaled_ui_amount_config = mint
-                    .get_extension::<ScaledUiAmountConfig>()
-                    .map(|x| (*x, unix_timestamp))
-                    .ok();
-                let additional_data: SerializableAccountAdditionalData = AccountAdditionalDataV3 {
-                    spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
-                        decimals: mint.base.decimals,
-                        interest_bearing_config,
-                        scaled_ui_amount_config,
-                    }),
-                }
-                .into();
-                self.account_associated_data
-                    .store(pubkey.to_string(), additional_data)?;
-            };
+            self.index_token_account_variant(pubkey, &pubkey_str, account)?;
+            self.index_mint_account_variant(pubkey, account)?;
+            self.index_token_2022_mint_extensions(pubkey, account)?;
         }
+        Ok(())
+    }
+
+    /// If `account.data` decodes as a token account, add it to the
+    /// owner/mint/delegate indexes and cache the unpacked `TokenAccount`.
+    /// A decode failure is treated as "not a token account" (not an error);
+    /// the enclosing call only dispatches here when the owner program is
+    /// already known to be a supported token program.
+    fn index_token_account_variant(
+        &mut self,
+        pubkey: &Pubkey,
+        pubkey_str: &str,
+        account: &Account,
+    ) -> SurfpoolResult<()> {
+        let Ok(token_account) = TokenAccount::unpack(&account.data) else {
+            return Ok(());
+        };
+        add_pubkey_to_index(
+            &mut self.token_accounts_by_owner,
+            token_account.owner().to_string(),
+            pubkey_str,
+        )?;
+        add_pubkey_to_index(
+            &mut self.token_accounts_by_mint,
+            token_account.mint().to_string(),
+            pubkey_str,
+        )?;
+        if let COption::Some(delegate) = token_account.delegate() {
+            add_pubkey_to_index(
+                &mut self.token_accounts_by_delegate,
+                delegate.to_string(),
+                pubkey_str,
+            )?;
+        }
+        self.token_accounts
+            .store(pubkey.to_string(), token_account)?;
+        Ok(())
+    }
+
+    /// If `account.data` decodes as a mint, cache the unpacked `MintAccount`.
+    fn index_mint_account_variant(
+        &mut self,
+        pubkey: &Pubkey,
+        account: &Account,
+    ) -> SurfpoolResult<()> {
+        let Ok(mint_account) = MintAccount::unpack(&account.data) else {
+            return Ok(());
+        };
+        self.token_mints.store(pubkey.to_string(), mint_account)?;
+        Ok(())
+    }
+
+    /// If `account.data` decodes as a Token-2022 mint with extensions,
+    /// snapshot the decimals and rate-limited extension state
+    /// (`InterestBearingConfig`, `ScaledUiAmountConfig`) into
+    /// `account_associated_data` so the RPC layer can serve UI-amount
+    /// conversions without re-parsing the raw account on every request.
+    fn index_token_2022_mint_extensions(
+        &mut self,
+        pubkey: &Pubkey,
+        account: &Account,
+    ) -> SurfpoolResult<()> {
+        let Ok(mint) =
+            StateWithExtensions::<spl_token_2022_interface::state::Mint>::unpack(&account.data)
+        else {
+            return Ok(());
+        };
+        let unix_timestamp = self.inner.get_sysvar::<Clock>().unix_timestamp;
+        let interest_bearing_config = mint
+            .get_extension::<InterestBearingConfig>()
+            .map(|x| (*x, unix_timestamp))
+            .ok();
+        let scaled_ui_amount_config = mint
+            .get_extension::<ScaledUiAmountConfig>()
+            .map(|x| (*x, unix_timestamp))
+            .ok();
+        let additional_data: SerializableAccountAdditionalData = AccountAdditionalDataV3 {
+            spl_token_additional_data: Some(SplTokenAdditionalDataV2 {
+                decimals: mint.base.decimals,
+                interest_bearing_config,
+                scaled_ui_amount_config,
+            }),
+        }
+        .into();
+        self.account_associated_data
+            .store(pubkey.to_string(), additional_data)?;
         Ok(())
     }
 
@@ -1302,61 +1355,32 @@ impl SurfnetSvm {
         pubkey: &Pubkey,
         old_account: &Account,
     ) -> SurfpoolResult<()> {
-        let owner_key = old_account.owner.to_string();
         let pubkey_str = pubkey.to_string();
-        if let Some(mut accounts) = self.accounts_by_owner.get(&owner_key).ok().flatten() {
-            accounts.retain(|pk| pk != &pubkey_str);
-            if accounts.is_empty() {
-                self.accounts_by_owner.take(&owner_key)?;
-            } else {
-                self.accounts_by_owner.store(owner_key, accounts)?;
-            }
-        }
+        remove_pubkey_from_index(
+            &mut self.accounts_by_owner,
+            &old_account.owner.to_string(),
+            &pubkey_str,
+        )?;
 
-        // if it was a token account, remove from token indexes
-        if is_supported_token_program(&old_account.owner) {
-            if let Some(old_token_account) = self.token_accounts.take(&pubkey.to_string())? {
-                let owner_key = old_token_account.owner().to_string();
-                if let Some(mut accounts) =
-                    self.token_accounts_by_owner.get(&owner_key).ok().flatten()
-                {
-                    accounts.retain(|pk| pk != &pubkey_str);
-                    if accounts.is_empty() {
-                        self.token_accounts_by_owner.take(&owner_key)?;
-                    } else {
-                        self.token_accounts_by_owner.store(owner_key, accounts)?;
-                    }
-                }
-
-                let mint_key = old_token_account.mint().to_string();
-                if let Some(mut accounts) =
-                    self.token_accounts_by_mint.get(&mint_key).ok().flatten()
-                {
-                    accounts.retain(|pk| pk != &pubkey_str);
-                    if accounts.is_empty() {
-                        self.token_accounts_by_mint.take(&mint_key)?;
-                    } else {
-                        self.token_accounts_by_mint.store(mint_key, accounts)?;
-                    }
-                }
-
-                if let COption::Some(delegate) = old_token_account.delegate() {
-                    let delegate_key = delegate.to_string();
-                    if let Some(mut accounts) = self
-                        .token_accounts_by_delegate
-                        .get(&delegate_key)
-                        .ok()
-                        .flatten()
-                    {
-                        accounts.retain(|pk| pk != &pubkey_str);
-                        if accounts.is_empty() {
-                            self.token_accounts_by_delegate.take(&delegate_key)?;
-                        } else {
-                            self.token_accounts_by_delegate
-                                .store(delegate_key, accounts)?;
-                        }
-                    }
-                }
+        if is_supported_token_program(&old_account.owner)
+            && let Some(old_token_account) = self.token_accounts.take(&pubkey_str)?
+        {
+            remove_pubkey_from_index(
+                &mut self.token_accounts_by_owner,
+                &old_token_account.owner().to_string(),
+                &pubkey_str,
+            )?;
+            remove_pubkey_from_index(
+                &mut self.token_accounts_by_mint,
+                &old_token_account.mint().to_string(),
+                &pubkey_str,
+            )?;
+            if let COption::Some(delegate) = old_token_account.delegate() {
+                remove_pubkey_from_index(
+                    &mut self.token_accounts_by_delegate,
+                    &delegate.to_string(),
+                    &pubkey_str,
+                )?;
             }
         }
         Ok(())

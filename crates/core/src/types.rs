@@ -850,6 +850,83 @@ impl TokenProgramDiscriminant {
     }
 }
 
+/// Emits `Serialize`/`Deserialize` impls for the two-variant
+/// (`SplToken2022`, `SplToken`) packable enums `TokenAccount` and
+/// `MintAccount`. The algorithm is identical for both: prepend a
+/// discriminant byte, `pack_into_slice` into a fixed-length buffer, and
+/// base64-encode; reverse on the way in. The only things that vary per
+/// enum are the packed inner types and the human label used in error
+/// messages, so those are the macro parameters.
+macro_rules! impl_token_program_packable_serde {
+    ($enum_name:ident, $ty_2022:ty, $ty_legacy:ty, $label:literal) => {
+        impl Serialize for $enum_name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                let mut bytes = Vec::with_capacity(1 + <$ty_2022>::LEN);
+                match self {
+                    Self::SplToken2022(inner) => {
+                        bytes.push(TokenProgramDiscriminant::SplToken2022.as_byte());
+                        let mut dst = [0u8; <$ty_2022>::LEN];
+                        inner.pack_into_slice(&mut dst);
+                        bytes.extend_from_slice(&dst);
+                    }
+                    Self::SplToken(inner) => {
+                        bytes.push(TokenProgramDiscriminant::SplToken.as_byte());
+                        let mut dst = [0u8; <$ty_legacy>::LEN];
+                        inner.pack_into_slice(&mut dst);
+                        bytes.extend_from_slice(&dst);
+                    }
+                }
+                let encoded = BASE64_STANDARD.encode(&bytes);
+                serializer.serialize_str(&encoded)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $enum_name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                let encoded = String::deserialize(deserializer)?;
+                let bytes = BASE64_STANDARD
+                    .decode(&encoded)
+                    .map_err(serde::de::Error::custom)?;
+
+                if bytes.is_empty() {
+                    return Err(serde::de::Error::custom(concat!(
+                        "Empty ",
+                        $label,
+                        " bytes"
+                    )));
+                }
+
+                let discriminant =
+                    TokenProgramDiscriminant::from_byte(bytes[0]).ok_or_else(|| {
+                        serde::de::Error::custom(format!(
+                            concat!("Unknown ", $label, " discriminant: {}"),
+                            bytes[0]
+                        ))
+                    })?;
+                let data = &bytes[1..];
+
+                match discriminant {
+                    TokenProgramDiscriminant::SplToken2022 => {
+                        let inner = <$ty_2022>::unpack(data).map_err(serde::de::Error::custom)?;
+                        Ok($enum_name::SplToken2022(inner))
+                    }
+                    TokenProgramDiscriminant::SplToken => {
+                        let inner =
+                            <$ty_legacy>::unpack(data).map_err(serde::de::Error::custom)?;
+                        Ok($enum_name::SplToken(inner))
+                    }
+                }
+            }
+        }
+    };
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TokenAccount {
     SplToken2022(spl_token_2022_interface::state::Account),
@@ -1009,64 +1086,12 @@ impl TokenAccount {
     }
 }
 
-impl Serialize for TokenAccount {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut bytes = Vec::with_capacity(1 + spl_token_2022_interface::state::Account::LEN);
-        match self {
-            Self::SplToken2022(account) => {
-                bytes.push(TokenProgramDiscriminant::SplToken2022.as_byte());
-                let mut dst = [0u8; spl_token_2022_interface::state::Account::LEN];
-                account.pack_into_slice(&mut dst);
-                bytes.extend_from_slice(&dst);
-            }
-            Self::SplToken(account) => {
-                bytes.push(TokenProgramDiscriminant::SplToken.as_byte());
-                let mut dst = [0u8; spl_token_interface::state::Account::LEN];
-                account.pack_into_slice(&mut dst);
-                bytes.extend_from_slice(&dst);
-            }
-        }
-        let encoded = BASE64_STANDARD.encode(&bytes);
-        serializer.serialize_str(&encoded)
-    }
-}
-
-impl<'de> Deserialize<'de> for TokenAccount {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let encoded = String::deserialize(deserializer)?;
-        let bytes = BASE64_STANDARD
-            .decode(&encoded)
-            .map_err(serde::de::Error::custom)?;
-
-        if bytes.is_empty() {
-            return Err(serde::de::Error::custom("Empty TokenAccount bytes"));
-        }
-
-        let discriminant = TokenProgramDiscriminant::from_byte(bytes[0]).ok_or_else(|| {
-            serde::de::Error::custom(format!("Unknown TokenAccount discriminant: {}", bytes[0]))
-        })?;
-        let data = &bytes[1..];
-
-        match discriminant {
-            TokenProgramDiscriminant::SplToken2022 => {
-                let account = spl_token_2022_interface::state::Account::unpack(data)
-                    .map_err(serde::de::Error::custom)?;
-                Ok(TokenAccount::SplToken2022(account))
-            }
-            TokenProgramDiscriminant::SplToken => {
-                let account = spl_token_interface::state::Account::unpack(data)
-                    .map_err(serde::de::Error::custom)?;
-                Ok(TokenAccount::SplToken(account))
-            }
-        }
-    }
-}
+impl_token_program_packable_serde!(
+    TokenAccount,
+    spl_token_2022_interface::state::Account,
+    spl_token_interface::state::Account,
+    "TokenAccount"
+);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OfflineAccountConfig {
@@ -1079,64 +1104,12 @@ pub enum MintAccount {
     SplToken(spl_token_interface::state::Mint),
 }
 
-impl Serialize for MintAccount {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut bytes = Vec::with_capacity(1 + spl_token_2022_interface::state::Mint::LEN);
-        match self {
-            Self::SplToken2022(mint) => {
-                bytes.push(TokenProgramDiscriminant::SplToken2022.as_byte());
-                let mut dst = [0u8; spl_token_2022_interface::state::Mint::LEN];
-                mint.pack_into_slice(&mut dst);
-                bytes.extend_from_slice(&dst);
-            }
-            Self::SplToken(mint) => {
-                bytes.push(TokenProgramDiscriminant::SplToken.as_byte());
-                let mut dst = [0u8; spl_token_interface::state::Mint::LEN];
-                mint.pack_into_slice(&mut dst);
-                bytes.extend_from_slice(&dst);
-            }
-        }
-        let encoded = BASE64_STANDARD.encode(&bytes);
-        serializer.serialize_str(&encoded)
-    }
-}
-
-impl<'de> Deserialize<'de> for MintAccount {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let encoded = String::deserialize(deserializer)?;
-        let bytes = BASE64_STANDARD
-            .decode(&encoded)
-            .map_err(serde::de::Error::custom)?;
-
-        if bytes.is_empty() {
-            return Err(serde::de::Error::custom("Empty MintAccount bytes"));
-        }
-
-        let discriminant = TokenProgramDiscriminant::from_byte(bytes[0]).ok_or_else(|| {
-            serde::de::Error::custom(format!("Unknown MintAccount discriminant: {}", bytes[0]))
-        })?;
-        let data = &bytes[1..];
-
-        match discriminant {
-            TokenProgramDiscriminant::SplToken2022 => {
-                let mint = spl_token_2022_interface::state::Mint::unpack(data)
-                    .map_err(serde::de::Error::custom)?;
-                Ok(MintAccount::SplToken2022(mint))
-            }
-            TokenProgramDiscriminant::SplToken => {
-                let mint = spl_token_interface::state::Mint::unpack(data)
-                    .map_err(serde::de::Error::custom)?;
-                Ok(MintAccount::SplToken(mint))
-            }
-        }
-    }
-}
+impl_token_program_packable_serde!(
+    MintAccount,
+    spl_token_2022_interface::state::Mint,
+    spl_token_interface::state::Mint,
+    "MintAccount"
+);
 
 impl MintAccount {
     pub fn unpack(bytes: &[u8]) -> SurfpoolResult<Self> {

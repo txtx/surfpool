@@ -504,6 +504,40 @@ fn log_events(
     Ok(())
 }
 
+/// How a simnet session decides to execute its deployment runbooks.
+///
+/// Classifies the three runtime inputs that steer execution
+/// (`cmd.artifacts_path.is_some()`, `cmd.anchor_compat`, whether a `txtx.yml`
+/// exists at the simnet's base location) into a single variant. Downstream
+/// callers `match` on the variant instead of recomputing compound boolean
+/// predicates at each decision site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RunbookExecutionMode {
+    /// A `txtx.yml` already exists on disk: execute it as-is.
+    ExistingOnDisk,
+    /// No `txtx.yml`: scaffold one on disk from the detected framework and
+    /// execute it. Requires framework detection to take effect.
+    ScaffoldOnDisk,
+    /// Execute an in-memory runbook. Triggered by `--artifacts-path` (custom
+    /// `bin_path` injection) or `--anchor-compat` without an existing
+    /// `txtx.yml`. Requires framework detection.
+    InMemory,
+}
+
+impl RunbookExecutionMode {
+    fn from_inputs(has_custom_artifacts_path: bool, anchor_compat: bool, txtx_exists: bool) -> Self {
+        match (has_custom_artifacts_path, anchor_compat, txtx_exists) {
+            // `--artifacts-path` always wins: the custom bin_path has to be
+            // injected, which only the in-memory runbook can do.
+            (true, _, _) => Self::InMemory,
+            // An on-disk `txtx.yml` is authoritative regardless of `--anchor-compat`.
+            (false, _, true) => Self::ExistingOnDisk,
+            (false, true, false) => Self::InMemory,
+            (false, false, false) => Self::ScaffoldOnDisk,
+        }
+    }
+}
+
 async fn write_and_execute_iac(
     cmd: &StartSimnet,
     simnet_events_tx: &Sender<SimnetEvent>,
@@ -521,17 +555,15 @@ async fn write_and_execute_iac(
     let mut in_memory_runbook_data = None;
     let runbook_input = cmd.runbook_input.clone();
 
-    // If there were existing on-disk runbooks, we'll execute those instead of in-memory ones
-    // If there were no existing runbooks and the user requested autopilot, we'll generate and execute in-memory runbooks
-    // If there were no existing runbooks and the user did not request autopilot, we'll generate and execute on-disk runbooks
-    // When --artifacts-path is set, always use in-memory runbooks so the custom bin_path is injected
-    let has_custom_artifacts_path = cmd.artifacts_path.is_some();
-    let do_execute_in_memory_runbooks =
-        has_custom_artifacts_path || (cmd.anchor_compat && !txtx_manifest_exists);
-    if !has_custom_artifacts_path && !cmd.anchor_compat && txtx_manifest_exists {
-        let runbooks_ids_to_execute = cmd.runbooks.clone();
-        on_disk_runbook_data = Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
-    };
+    let mode = RunbookExecutionMode::from_inputs(
+        cmd.artifacts_path.is_some(),
+        cmd.anchor_compat,
+        txtx_manifest_exists,
+    );
+
+    if mode == RunbookExecutionMode::ExistingOnDisk {
+        on_disk_runbook_data = Some((txtx_manifest_location.clone(), cmd.runbooks.clone()));
+    }
 
     // Are we in a project directory?
     if let Ok(deployment) = detect_program_frameworks(
@@ -566,31 +598,28 @@ async fn write_and_execute_iac(
                 }
             }
 
-            // Is infrastructure-as-code (IaC) already setup?
-            let do_write_scaffold =
-                !has_custom_artifacts_path && !cmd.anchor_compat && !txtx_manifest_exists;
-            if do_write_scaffold {
-                // Scaffold IaC
-                scaffold_iac_layout(
-                    &framework,
-                    &programs,
-                    &base_location,
-                    cmd.skip_runbook_generation_prompts,
-                )?;
-                let runbooks_ids_to_execute = cmd.runbooks.clone();
-                on_disk_runbook_data =
-                    Some((txtx_manifest_location.clone(), runbooks_ids_to_execute));
-            }
-
-            if do_execute_in_memory_runbooks {
-                in_memory_runbook_data = Some(scaffold_in_memory_iac(
-                    &framework,
-                    &programs,
-                    &genesis_accounts,
-                    &accounts,
-                    &accounts_dir,
-                    cmd.artifacts_path.as_deref(),
-                )?);
+            match mode {
+                RunbookExecutionMode::ScaffoldOnDisk => {
+                    scaffold_iac_layout(
+                        &framework,
+                        &programs,
+                        &base_location,
+                        cmd.skip_runbook_generation_prompts,
+                    )?;
+                    on_disk_runbook_data =
+                        Some((txtx_manifest_location.clone(), cmd.runbooks.clone()));
+                }
+                RunbookExecutionMode::InMemory => {
+                    in_memory_runbook_data = Some(scaffold_in_memory_iac(
+                        &framework,
+                        &programs,
+                        &genesis_accounts,
+                        &accounts,
+                        &accounts_dir,
+                        cmd.artifacts_path.as_deref(),
+                    )?);
+                }
+                RunbookExecutionMode::ExistingOnDisk => {}
             }
         }
 
