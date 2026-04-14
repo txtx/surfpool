@@ -506,15 +506,11 @@ fn log_events(
 
 /// How a simnet session decides to execute its deployment runbooks.
 ///
-/// The previous implementation encoded this as three independent booleans
-/// (`has_custom_artifacts_path`, `cmd.anchor_compat`, `txtx_manifest_exists`)
-/// combined into ad-hoc predicates at the call sites. The truth table below
-/// lifts those predicates into one place so every decision downstream is a
-/// single `match` instead of a compound boolean. Semantics are byte-identical
-/// to the pre-refactor version, including the `Neither` fallthrough that the
-/// original logic produced for the anchor-compat-with-existing-txtx case
-/// (preserved deliberately; whether that case is a bug is a separate
-/// question).
+/// Classifies the three runtime inputs that steer execution
+/// (`cmd.artifacts_path.is_some()`, `cmd.anchor_compat`, whether a `txtx.yml`
+/// exists at the simnet's base location) into a single variant. Downstream
+/// callers `match` on the variant instead of recomputing compound boolean
+/// predicates at each decision site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RunbookExecutionMode {
     /// A `txtx.yml` already exists on disk: execute it as-is.

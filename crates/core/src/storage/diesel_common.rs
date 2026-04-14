@@ -1,17 +1,15 @@
 //! Shared helpers for the diesel-backed `Storage` implementations.
 //!
-//! `SqliteStorage` and `PostgresStorage` used to carry byte-identical copies
-//! of the serde_json-based key/value codec and of the `QueryableByName` row
-//! structs. The codec is pure serde and the row shape is identical across
-//! dialects (three `TEXT` columns plus one `BIGINT` for counts), so nothing
-//! about them is dialect-specific. This module consolidates them so the two
-//! backends only need to own the truly dialect-specific pieces: connection
-//! type, SQL placeholders (`?` vs `$N`), and upsert syntax.
+//! Both `SqliteStorage` and `PostgresStorage` speak the same wire shape:
+//! the key/value codec is pure `serde_json`, and every row they load is one
+//! of four fixed `QueryableByName` shapes (three `TEXT` columns or a single
+//! `BIGINT` for counts). This module owns those pieces so the per-backend
+//! modules only carry the dialect-specific bits (connection type, SQL
+//! placeholders `?` vs `$N`, upsert syntax, WAL management).
 //!
-//! The free functions take a `backend_name: &'static str` (e.g. `"SQLite"` /
-//! `"PostgreSQL"`) so that any error the caller surfaces names the correct
-//! backend; the hand-written impls previously hard-coded this via a per-file
-//! `NAME` const.
+//! The codec helpers take a `backend_name: &'static str` (e.g. `"SQLite"` /
+//! `"PostgreSQL"`) so `StorageError` variants surfaced by the caller name
+//! the correct backend.
 
 use serde::{Deserialize, Serialize};
 // The `QueryableByName` derive expands to paths rooted at `diesel::`, so we
