@@ -28,17 +28,19 @@ use solana_rpc_client_api::response::Response as RpcResponse;
 use solana_sdk_ids::compute_budget;
 use solana_signature::Signature;
 use solana_system_interface::program as system_program;
-use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_error::TransactionError;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionBinaryEncoding,
-    TransactionConfirmationStatus, TransactionStatus, UiConfirmedBlock, UiTransactionEncoding,
+    TransactionConfirmationStatus, TransactionStatus, UiConfirmedBlock,
 };
 use surfpool_types::{SimnetCommand, TransactionStatusEvent};
 
 use super::{
     RunloopContext, State, SurfnetRpcContext,
-    utils::{decode_and_deserialize, transform_tx_metadata_to_ui_accounts, verify_pubkey},
+    utils::{
+        decode_and_deserialize, decode_rpc_versioned_transaction,
+        transform_tx_metadata_to_ui_accounts, verify_pubkey,
+    },
 };
 use crate::{
     SURFPOOL_IDENTITY_PUBKEY,
@@ -1566,17 +1568,7 @@ impl Full for SurfpoolFullRpc {
         let rpc_start = std::time::Instant::now();
 
         let config = config.unwrap_or_default();
-        let tx_encoding = config
-            .base
-            .encoding
-            .unwrap_or(UiTransactionEncoding::Base58);
-        let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
-            Error::invalid_params(format!(
-                "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
-            ))
-        })?;
-        let (_, unsanitized_tx) =
-            decode_and_deserialize::<VersionedTransaction>(data, binary_encoding)?;
+        let unsanitized_tx = decode_rpc_versioned_transaction(data, config.base.encoding)?;
         let signatures = unsanitized_tx.signatures.clone();
         let signature = signatures[0];
         // Clone the message before moving the transaction, as we'll need it for error reporting
@@ -1700,22 +1692,10 @@ impl Full for SurfpoolFullRpc {
             return SurfpoolError::sig_verify_replace_recent_blockhash_collision().into();
         }
 
-        let tx_encoding = config.encoding.unwrap_or(UiTransactionEncoding::Base58);
-        let binary_encoding = match tx_encoding.into_binary_encoding() {
-            Some(binary_encoding) => binary_encoding,
-            None => {
-                return Box::pin(async move {
-                    Err(Error::invalid_params(format!(
-                        "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
-                    )))
-                });
-            }
+        let mut unsanitized_tx = match decode_rpc_versioned_transaction(data, config.encoding) {
+            Ok(tx) => tx,
+            Err(e) => return Box::pin(async move { Err(e) }),
         };
-        let (_, mut unsanitized_tx) =
-            match decode_and_deserialize::<VersionedTransaction>(data, binary_encoding) {
-                Ok(res) => res,
-                Err(e) => return Box::pin(async move { Err(e) }),
-            };
 
         let SurfnetRpcContext {
             svm_locker,
@@ -2584,12 +2564,12 @@ mod tests {
     };
     use solana_transaction::{
         Transaction,
-        versioned::{Legacy, TransactionVersion},
+        versioned::{Legacy, TransactionVersion, VersionedTransaction},
     };
     use solana_transaction_error::TransactionError;
     use solana_transaction_status::{
         EncodedTransaction, EncodedTransactionWithStatusMeta, UiCompiledInstruction, UiMessage,
-        UiRawMessage, UiTransaction,
+        UiRawMessage, UiTransaction, UiTransactionEncoding,
     };
     use surfpool_types::{SimnetCommand, TransactionConfirmationStatus};
     use test_case::test_case;

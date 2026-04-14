@@ -181,6 +181,30 @@ where
         .map(|output| (wire_output, output))
 }
 
+/// Decode the RPC `data` parameter of `sendTransaction` and
+/// `simulateTransaction` into a `solana_transaction::VersionedTransaction`.
+///
+/// Both methods accept a `UiTransactionEncoding` on their config that defaults
+/// to `Base58`, map it to the internal `TransactionBinaryEncoding`, and feed
+/// the result into `decode_and_deserialize`. The mapping can fail (the RPC
+/// only accepts base58 and base64), which is reported back as an
+/// `Error::invalid_params` listing the supported encodings.
+pub fn decode_rpc_versioned_transaction(
+    data: String,
+    encoding: Option<UiTransactionEncoding>,
+) -> Result<solana_transaction::versioned::VersionedTransaction> {
+    let tx_encoding = encoding.unwrap_or(UiTransactionEncoding::Base58);
+    let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
+        Error::invalid_params(format!(
+            "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
+        ))
+    })?;
+    let (_, unsanitized_tx) = decode_and_deserialize::<
+        solana_transaction::versioned::VersionedTransaction,
+    >(data, binary_encoding)?;
+    Ok(unsanitized_tx)
+}
+
 pub fn transform_tx_metadata_to_ui_accounts(
     meta: TransactionMetadata,
     message: &VersionedMessage,
