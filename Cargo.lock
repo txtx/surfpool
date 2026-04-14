@@ -11382,7 +11382,6 @@ dependencies = [
  "hex",
  "hiro-system-kit",
  "log 0.4.29",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
  "solana-account 3.3.0",
@@ -11408,7 +11407,6 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "uuid",
- "zip",
 ]
 
 [[package]]

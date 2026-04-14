@@ -139,9 +139,7 @@ jobs:
 
           const surfnet = Surfnet.startWithConfig({
             offline: true,
-            blockProductionMode: "manual",
-            report: false,
-            testName: "sdk-node-packed-smoke",
+            blockProductionMode: "manual"
           });
 
           assert.match(surfnet.rpcUrl, /^http:\/\//);

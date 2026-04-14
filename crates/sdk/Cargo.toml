@@ -37,11 +37,6 @@ uuid = { workspace = true, features = ["v4"] }
 surfpool-core = { workspace = true }
 surfpool-types = { workspace = true }
 
-[build-dependencies]
-reqwest = { workspace = true, features = ["blocking", "default-tls", "json"] }
-serde = { workspace = true, features = ["derive"] }
-zip = { workspace = true }
-
 [dev-dependencies]
 solana-program-pack = { workspace = true }
 solana-system-interface = { workspace = true }

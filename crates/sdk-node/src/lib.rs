@@ -47,12 +47,6 @@ impl Surfnet {
         if let Some(lamports) = config.airdrop_sol {
             builder = builder.airdrop_sol(lamports as u64);
         }
-        if let Some(name) = config.test_name {
-            builder = builder.test_name(name);
-        }
-        if let Some(report) = config.report {
-            builder = builder.report(report);
-        }
 
         let inner = hiro_system_kit::nestable_block_on(builder.start())
             .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?;
@@ -325,8 +319,6 @@ pub struct SurfnetConfig {
     pub block_production_mode: Option<String>,
     pub slot_time_ms: Option<f64>,
     pub airdrop_sol: Option<f64>,
-    pub test_name: Option<String>,
-    pub report: Option<bool>,
 }
 
 #[napi(object)]
