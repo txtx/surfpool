@@ -24,7 +24,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true, features = ["alloc", "macros"] }
 agave-feature-set = { workspace = true }
-solana-account = { workspace = true }
+solana-account = { workspace = true, features = ["serde"] }
 solana-account-decoder-client-types = { workspace = true }
 solana-clock = { workspace = true }
 solana-epoch-info = { workspace = true }
@@ -32,13 +32,18 @@ solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signature = { workspace = true }
 solana-transaction = { workspace = true }
-solana-transaction-context = { workspace = true }
+solana-transaction-context = { workspace = true, features = ["serde"] }
 solana-transaction-error = { workspace = true }
 uuid = { workspace = true }
 
 txtx-addon-kit = { workspace = true }
 txtx-addon-network-svm-types = { workspace = true }
 url = { workspace = true }
+
+ts-rs = { workspace = true, optional = true }
+
+[features]
+ts = ["ts-rs"]
 
 [dev-dependencies]
 test-case = { workspace = true }
